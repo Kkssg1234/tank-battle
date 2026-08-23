@@ -72,6 +72,11 @@ jobs:
                   f.write(buf.getvalue())
           PY
 
+      - name: Patch index.html for auto-start
+        # 让游戏加载后自动启动，不再卡在 "等待点击"；并清理无效 allow feature 警告
+        run: |
+          python scripts/patch_index.py build/web/index.html
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
