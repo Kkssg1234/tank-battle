@@ -1,18 +1,38 @@
 """
 patch_index.py - pygbag 构建后对 index.html 的修正脚本
 
-作用：
-1. 设置 autorun=1，让游戏加载完成后自动启动，不再强制等待用户点击才能开始
-   （pygbag 默认 autorun=0，会卡在 "MEDIA USER ACTION REQUIRED" 等待手势解锁音频）
-2. 移除 allow 属性里浏览器不认识的 'monetization' / 'xr' feature，消除控制台警告
-3. 强化 "点击开始" 提示文案，避免用户误以为黑屏
+修复项（按顺序）：
+1. 注入 <!DOCTYPE html>，消除 Quirks Mode（无 DOCTYPE 会让画布用 quirks 布局，高度塌缩→黑屏）
+2. 将 autorun 设为 1（构建完成后自动启动，无需等待点击）
+3. 将 ume_block 设为 0（跳过"媒体交互/音频"等待，避免卡在点击提示）
+4. 修正可能出现的非法 JS：autorun/ume_block 写成 '=' 分隔（如 autorun=1）
+   会变成 "Invalid shorthand property initializer" 语法错误，导致整个 config 块解析失败、
+   pygbag 读不到存档/画布尺寸、画布停在 1px→黑屏。统一改回合法的 ' : ' 分隔。
+5. 确保 html, body 占满视口，使画布 height:100% 能正确解析
+6. 清理 allow 属性里浏览器不认识的 feature（消除控制台警告）
+7. 让"请点击"提示文案更友好
 
 用法：
     python scripts/patch_index.py build/web/index.html
 """
 
-import sys
 import re
+import sys
+
+
+def _clean_allow(s: str) -> str:
+    """仅清理 <iframe ... allow="..."> 中的无效 feature，避免误伤其它内容。"""
+    def repl(m):
+        allow = m.group(1)
+        for bad in ("monetization", "xr-spatial-tracking", "xr"):
+            # 单词边界式移除，避免误删包含这些子串的合法 token
+            allow = re.sub(r"(?<![\w-])" + re.escape(bad) + r"(?![\w-])", "", allow)
+        allow = re.sub(r";{2,}", ";", allow)
+        allow = re.sub(r"^\s*;", "", allow)
+        allow = re.sub(r";\s*$", "", allow)
+        return 'allow="%s"' % allow.strip()
+
+    return re.sub(r'allow="([^"]*)"', repl, s)
 
 
 def patch(path: str) -> None:
@@ -21,35 +41,35 @@ def patch(path: str) -> None:
 
     orig = s
 
-    # 1) autorun=0 -> autorun=1 （自动启动游戏）
-    s = s.replace('config.autorun = 0', 'config.autorun = 1')
-    s = s.replace('"autorun": 0', '"autorun": 1')
-    # 兼容 pygbag 不同版本写法
-    s = re.sub(r'autorun["\s]*[:=]["\s]*0', 'autorun=1', s)
+    # 1) 注入 DOCTYPE，消除 Quirks Mode（根因之一：画布高度塌缩导致黑屏）
+    if not re.match(r"^\s*<!DOCTYPE", s, re.IGNORECASE):
+        s = "<!DOCTYPE html>\n" + s
 
-    # 2) 清理 allow 属性中的无效 feature
-    #    原：allow="...; monetization; xr-spatial-tracking; ...; xr; cross-origin-isolated"
-    #    浏览器不认识的 feature 会触发 "Unrecognized feature" 警告，需整体移除。
-    s = s.replace('monetization; ', '')
-    s = s.replace('xr-spatial-tracking; ', '')
-    s = s.replace('; xr', '')          # 去掉独立的 '; xr'
-    s = s.replace(' xr', '')           # 去掉可能残留的 ' xr'
-    s = re.sub(r';\s*;', ';', s)       # 合并多余分号
-    s = re.sub(r';\s*$', '', s)        # 去掉结尾分号
+    # 2) autorun: 无论原模板用 ':' 还是 '='，统一为合法 JS 且启用
+    s = re.sub(r"autorun\s*[:=]\s*[01]", "autorun : 1", s)
 
-    # 3) 让 "请点击" 提示更醒目（若模板里有这段提示）
+    # 3) ume_block: 关闭媒体交互阻塞（无需点击即可启动）
+    s = re.sub(r"ume_block\s*[:=]\s*[01]", "ume_block : 0", s)
+
+    # 4) html/body 占满视口，画布 height:100% 才能正确解析（防黑屏兜底）
+    if "html, body" not in s:
+        s = s.replace("<style>", "<style>\n        html, body { height: 100%; }\n", 1)
+
+    # 5) 清理 allow 无效 feature（仅作用于 iframe allow 属性）
+    s = _clean_allow(s)
+
+    # 6) 友好提示文案（若模板里有这段提示）
     s = s.replace(
         "Ready to start ! Please click/touch page",
         "点击页面任意位置开始游戏 / Click anywhere to start",
     )
 
-    # 4) 如果模板用 wait_for_click 阻塞，这里直接跳过阻塞 —— 通过注入 UMENG 解锁
-    #    pygbag 在 custom_site() 里 while not UME 等待；我们通过把 UME 提前置位来跳过。
-    #    在 custom_onload 末尾注入：window.MM && (window.MM.UME = true)
+    # 7) 兜底解锁媒体交互，跳过 "等待点击" 阻塞
+    #    （音频仍受浏览器自动播放策略约束，首次交互后生效；不影响画面渲染）
     s = s.replace(
-        "console.log(__FILE__, \"custom_onload\")",
-        "console.log(__FILE__, \"custom_onload\")\n"
-        "        // 主动解锁媒体交互，跳过 \"等待点击\" 阻塞（音频仍受浏览器自动播放策略约束，点击后生效）\n"
+        'console.log(__FILE__, "custom_onload")',
+        'console.log(__FILE__, "custom_onload")\n'
+        "        // 主动解锁媒体交互，跳过 \"等待点击\" 阻塞\n"
         "        try { if (window.MM) { window.MM.UME = true; } } catch(e) { console.warn('UME unlock skip', e); }",
     )
 
