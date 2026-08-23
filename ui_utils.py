@@ -1,6 +1,8 @@
 """
 UI工具模块 - 按钮、文字绘制、背景渲染等通用UI组件
 """
+import os
+
 import pygame
 from constants import *
 
@@ -141,10 +143,10 @@ def draw_corner_logo(screen, fonts):
 
 
 def load_fonts():
-    """加载字体（优先使用系统中文字体；浏览器端回退到内置默认字体）。
+    """加载字体（双端兼容）。
 
-    浏览器（pygbag / wasm）环境没有本地中文字体文件，match_font 会失败，
-    此时直接使用 pygame.font.SysFont(None, size) 的内置默认字体，保证可运行。
+    浏览器（pygbag / wasm）环境：使用随包打包的 assets/simhei.ttf（黑体，含简体中文），
+    保证界面中文正常显示。本地环境：优先系统字体，找不到再回退。
     """
     # 判断是否处于浏览器环境
     in_browser = False
@@ -159,15 +161,60 @@ def load_fonts():
     fonts = {}
     sizes = [FONT_XS, FONT_S, FONT_M, FONT_L, FONT_XL, FONT_XXL]
 
+    # 定位中文字体文件（双端通用，做多路径回退）：
+    # - 本地端：优先项目根 assets/simhei.ttf，其次脚本同目录
+    # - 浏览器端（pygbag 把项目根打进 assets/ 子目录）：
+    #     __file__ 指向 assets/main.py，故字体真实路径为 assets/assets/simhei.ttf
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+    except Exception:
+        here = "."
+    font_candidates_paths = [
+        os.path.join(here, "assets", "simhei.ttf"),   # 本地: 脚本同目录/assets
+        os.path.join(here, "simhei.ttf"),             # 本地: 脚本同目录
+        os.path.join(here, "..", "assets", "simhei.ttf"),  # 浏览器: assets/main.py -> 包根/assets
+        os.path.join("assets", "assets", "simhei.ttf"),     # 浏览器: 相对包根
+        os.path.join("assets", "simhei.ttf"),               # 浏览器: 相对包根(平铺)
+    ]
+
+    def _find_cn_font():
+        for p in font_candidates_paths:
+            try:
+                if os.path.exists(p):
+                    return p
+            except Exception:
+                continue
+        return None
+
+    cn_font = _find_cn_font()
+
     if in_browser:
-        # 网页端：使用内置默认字体，避免依赖系统字体路径
+        # 网页端：直接尝试用打包内的中文字体路径加载（不依赖 exists 判断，
+        # 因为 wasm 虚拟文件系统下 os.path.exists 可能不可靠）
+        browser_font_paths = [
+            "assets/assets/simhei.ttf",   # pygbag 把项目根打进 assets/，故字体在 assets/assets/
+            "assets/simhei.ttf",
+            cn_font if cn_font else "assets/assets/simhei.ttf",
+        ]
+        loaded = False
+        chosen = None
+        for fp in browser_font_paths:
+            try:
+                # 先用第一个 size 试加载，确认路径有效
+                pygame.font.Font(fp, sizes[0])
+                chosen = fp
+                loaded = True
+                break
+            except Exception:
+                continue
         for size in sizes:
             try:
-                fonts[size] = pygame.font.SysFont(None, size)
+                fonts[size] = pygame.font.Font(chosen, size) if chosen else pygame.font.SysFont(None, size)
             except Exception:
-                fonts[size] = pygame.font.Font(None, size)
+                fonts[size] = pygame.font.SysFont(None, size)
         return fonts
 
+    # 本地端：优先系统字体，回退到打包内的 simhei.ttf，再回退内置字体
     font_candidates = [
         "microsoftyahei", "msyh", "simhei", "simsun", "kaiti",
         "Microsoft YaHei", "SimHei", "SimSun", "KaiTi", "arial"
@@ -181,6 +228,8 @@ def load_fonts():
                 break
         except Exception:
             continue
+    if not selected_font and cn_font:
+        selected_font = cn_font
 
     for size in sizes:
         if selected_font:
