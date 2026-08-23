@@ -11,6 +11,9 @@ patch_index.py - pygbag 构建后对 index.html 的修正脚本
 5. 确保 html, body 占满视口，使画布 height:100% 能正确解析
 6. 清理 allow 属性里浏览器不认识的 feature（消除控制台警告）
 7. 让"请点击"提示文案更友好
+8. 网页布局美化：两侧留白区域主题化为深蓝科技风 + 画布辉光边框，消除"空白"观感
+9. 生产环境关闭 xtermjs 终端覆盖层，减少 JS 开销与字体请求，加快首屏
+10. 预连接 CDN，加速 wasm / 字体加载
 
 用法：
     python scripts/patch_index.py build/web/index.html
@@ -72,6 +75,37 @@ def patch(path: str) -> None:
         "        // 主动解锁媒体交互，跳过 \"等待点击\" 阻塞\n"
         "        try { if (window.MM) { window.MM.UME = true; } } catch(e) { console.warn('UME unlock skip', e); }",
     )
+
+    # 8) 网页布局美化：将画布两侧的留白区域主题化为深蓝科技风（网格 + 径向渐变），
+    #    并为画布添加辉光边框，使 16:9 letterbox 看起来是刻意设计而非“空白”。
+    #    说明：固定 16:9 内容无法在非 16:9 视口「无变形且无裁切」地填满，
+    #    因此采用用户许可的“美化整体呈现”方案，而非拉伸/裁切画面。
+    s = s.replace(
+        "background-color:powderblue;",
+        "overflow: hidden;\n"
+        "            background:\n"
+        "              linear-gradient(rgba(80,220,255,0.05) 1px, transparent 1px) 0 0 / 40px 40px,\n"
+        "              linear-gradient(90deg, rgba(80,220,255,0.05) 1px, transparent 1px) 0 0 / 40px 40px,\n"
+        "              radial-gradient(ellipse at center, #0a1430 0%, #050c23 100%);",
+    )
+    # 画布辉光边框（pygbag 会把画布按 16:9 居中，边框框住画面）
+    s = s.replace(
+        "border: 0px none;",
+        "border: 0px none;\n            box-shadow: 0 0 40px rgba(80,220,255,0.28);\n            border-radius: 6px;",
+        1,
+    )
+
+    # 9) 生产环境关闭 xtermjs 终端覆盖层：减少 JS 开销与字体请求，加快首屏
+    s = re.sub(r'xtermjs\s*[:=]\s*"[01]"', 'xtermjs : "0"', s)
+
+    # 10) 预连接 CDN，加速 wasm / 字体首屏加载
+    if 'rel="preconnect"' not in s:
+        s = s.replace(
+            '<link rel="icon"',
+            '<link rel="preconnect" href="https://pygame-web.github.io" crossorigin>\n'
+            '    <link rel="icon"',
+            1,
+        )
 
     if s == orig:
         print("WARNING: index.html 未发生变化，请检查 pygbag 模板版本")

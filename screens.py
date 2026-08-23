@@ -8,7 +8,8 @@ from constants import *
 from level_config import TOTAL_LEVELS, get_level_config
 from ui_utils import (Button, draw_text, draw_bg, draw_corner_logo, draw_panel,
                       draw_tank_icon, draw_card, draw_badge, draw_progress_bar,
-                      draw_glow_accent, draw_divider)
+                      draw_glow_accent, draw_divider,
+                      draw_hearts, draw_lock, draw_shield, draw_warning)
 from vfx import draw_glow
 from save_manager import SaveManager, ScoreSystem
 from game_world import GameWorld, TwoPlayerGameWorld
@@ -67,10 +68,10 @@ class MenuScreen:
         sy = 260
         gap = 22
         self.buttons = [
-            Button(cx - bw // 2, sy, bw, bh, "🎮 单人闯关模式", FONT_L),
-            Button(cx - bw // 2, sy + bh + gap, bw, bh, "👥 双人模式", FONT_L),
-            Button(cx - bw // 2, sy + (bh + gap) * 2, bw, bh, "🚗 车库", FONT_L),
-            Button(cx - bw // 2, sy + (bh + gap) * 3, bw, bh, "❌ 退出游戏", FONT_L),
+            Button(cx - bw // 2, sy, bw, bh, "单人闯关模式", FONT_L),
+            Button(cx - bw // 2, sy + bh + gap, bw, bh, "双人模式", FONT_L),
+            Button(cx - bw // 2, sy + (bh + gap) * 2, bw, bh, "车库", FONT_L),
+            Button(cx - bw // 2, sy + (bh + gap) * 3, bw, bh, "退出游戏", FONT_L),
         ]
         # 网页版：浏览器无法真正「退出」，禁用退出按钮，避免点击后画面冻结
         if _IN_BROWSER:
@@ -78,7 +79,7 @@ class MenuScreen:
         # 网页版专属功能入口：下载存档到本地设备
         if _IN_BROWSER:
             self.download_btn = Button(cx - 130, 556, 260, 40,
-                                       "📥 下载存档到本地", FONT_M)
+                                       "下载存档到本地", FONT_M)
         else:
             self.download_btn = None
 
@@ -100,8 +101,8 @@ class MenuScreen:
         # 网页版：下载存档到本地
         if self.download_btn is not None and self.download_btn.handle_event(event):
             ok = download_save(self.game)
-            self.toast = ("✅ 存档已下载：tank-battle-save.json"
-                         if ok else "⚠️ 当前环境不支持下载")
+            self.toast = ("存档已下载：tank-battle-save.json"
+                         if ok else "当前环境不支持下载")
             self.toast_timer = 3.0
             return
 
@@ -117,7 +118,7 @@ class MenuScreen:
 
         # 标题 - 浮动动画 + 辉光强调（幅度缩小，避免与下方存档条重叠）
         title_y = 92 + math.sin(self.time * 2) * 4
-        draw_glow_accent(screen, SCREEN_WIDTH // 2, title_y, "🎯 坦 克 大 战",
+        draw_glow_accent(screen, SCREEN_WIDTH // 2, title_y, "坦 克 大 战",
                          fonts, FONT_XXL, COLOR_GOLD)
         draw_text(screen, "TANK BATTLE", SCREEN_WIDTH // 2, title_y + 70,
                   fonts, FONT_L, COLOR_CYAN, center=True)
@@ -182,14 +183,12 @@ class LevelSelectScreen:
             level_num = i + 1
             unlocked = level_num <= highest + 1   # 已解锁（highest+1 以内）：亮色可点击
             text = f"第 {level_num} 关"
-            if not unlocked:
-                text = f"🔒 {level_num}"
             btn = Button(x, y, bw, bh, text, FONT_M, disabled=not unlocked)
             self.level_buttons.append((btn, level_num, unlocked))
 
         self.back_btn = Button(40, SCREEN_HEIGHT - 70, 160, 48, "← 返回菜单", FONT_M)
         self.start_btn = Button(SCREEN_WIDTH // 2 - 110, SCREEN_HEIGHT - 95, 220, 48,
-                                "🚀 开始战斗", FONT_L)
+                                "开始战斗", FONT_L)
 
     def enter(self):
         self._build_buttons()
@@ -218,7 +217,7 @@ class LevelSelectScreen:
         save = get_save(self.game)
 
         # 标题辉光
-        draw_glow_accent(screen, SCREEN_WIDTH // 2, 55, "🎮 单人闯关模式 - 选择关卡",
+        draw_glow_accent(screen, SCREEN_WIDTH // 2, 55, "单人闯关模式 - 选择关卡",
                          fonts, FONT_XL, COLOR_GOLD)
         draw_text(screen, f"最高通关: 第 {save['highest_level_cleared']} 关    最高分记录已保存",
                   SCREEN_WIDTH // 2, 100, fonts, FONT_S, COLOR_CYAN, center=True)
@@ -231,6 +230,9 @@ class LevelSelectScreen:
                 pygame.draw.rect(screen, UI_ACCENT, btn.rect.inflate(6, 6),
                                  width=3, border_radius=UI_RADIUS_LG)
             btn.draw(screen, fonts)
+            if not unlocked:
+                # 矢量小锁图标（emoji 🔒 在 pygame 中无法渲染）
+                draw_lock(screen, btn.rect.right - 26, btn.rect.top + 8, 16, COLOR_GRAY)
             if unlocked:
                 key = f"level_{level_num}"
                 hs = save["high_scores"].get(key, 0)
@@ -306,7 +308,7 @@ class VictoryAnimation:
             alpha = int(255 * (1 - t))
             r = max(1, int(3 * (1 - t)))
             draw_glow(screen, p["x"], p["y"], r + 1, p["color"], alpha=alpha)
-        draw_text(screen, "🎉 恭 喜 通 关 !", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 70,
+        draw_text(screen, "恭 喜 通 关 !", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 70,
                   fonts, FONT_XXL, COLOR_GOLD, center=True)
         draw_text(screen, "你已击败全部 15 关，成为坦克大战王者！",
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2, fonts, FONT_L, COLOR_WHITE, center=True)
@@ -338,9 +340,9 @@ class ResultScreen:
         pbw, pbh = 150, 50
         cx = SCREEN_WIDTH // 2
         by = (SCREEN_HEIGHT - self.PH) // 2 + self.PH - 80
-        self.next_btn = Button(cx - 235, by, pbw, pbh, "➡ 下一关", FONT_M)
-        self.retry_btn = Button(cx - 75, by, pbw, pbh, "🔄 重试", FONT_M)
-        self.menu_btn = Button(cx + 85, by, pbw, pbh, "🏠 选关", FONT_M)
+        self.next_btn = Button(cx - 235, by, pbw, pbh, "下一关", FONT_M)
+        self.retry_btn = Button(cx - 75, by, pbw, pbh, "重试", FONT_M)
+        self.menu_btn = Button(cx + 85, by, pbw, pbh, "选关", FONT_M)
         self.next_btn.disabled = not self.show_next
 
     def draw(self, screen, fonts):
@@ -355,9 +357,9 @@ class ResultScreen:
         draw_panel(screen, px, py, pw, ph, alpha=245)
 
         if self.victory:
-            title, col = "🎉 胜 利 !", COLOR_GOLD
+            title, col = "胜 利 !", COLOR_GOLD
         else:
-            title, col = "💀 失 败", COLOR_RED
+            title, col = "失 败", COLOR_RED
         draw_glow_accent(screen, px + pw // 2, py + 50, title,
                          fonts, FONT_XXL, col)
         draw_text(screen, f"第 {self.level} 关", px + pw // 2, py + 112,
@@ -384,7 +386,7 @@ class ResultScreen:
 
         # 解锁提示（预留：Round 4 传入解锁的坦克名称）
         for i, name in enumerate(self.new_unlocks):
-            draw_text(screen, f"🎉 新坦克解锁: {name}",
+            draw_text(screen, f"新坦克解锁: {name}",
                       px + pw // 2, py + 305 + i * 22,
                       fonts, FONT_S, COLOR_GREEN, center=True)
 
@@ -581,24 +583,28 @@ class SinglePlayScreen:
 
         # ---- 顶部 HUD ----
         hud_y = 20
-        # 血量
-        hp_hearts = "❤️" * max(0, player.hp)
+        # 血量（心形矢量图标，无 emoji 依赖，网页/本地一致显示）
+        hp_label = "血量"
+        draw_text(screen, hp_label, 60, hud_y + 8, fonts, FONT_M, COLOR_RED)
+        hlw = fonts[FONT_M].size(hp_label)[0]
+        hx0 = 60 + hlw + 8
+        draw_hearts(screen, hx0, hud_y + 4, max(0, player.hp),
+                    player.max_hp, COLOR_RED, size=20, gap=4)
         if player.hp <= 0:
-            hp_hearts = "💀"
-        hp_text = f"血量: {hp_hearts}"
-        draw_text(screen, hp_text, 60, hud_y + 8, fonts, FONT_M, COLOR_RED)
+            draw_text(screen, "阵亡", hx0 + player.max_hp * (20 + 4) + 6,
+                      hud_y + 8, fonts, FONT_S, COLOR_GRAY)
 
         # 当前坦克
-        draw_text(screen, f"🚗 {tank_name}", 280, hud_y + 8,
+        draw_text(screen, tank_name, 280, hud_y + 8,
                   fonts, FONT_M, tank_info["color"])
 
         # 关卡信息 & 剩余敌人
         remaining = w.remaining_enemies()
-        draw_text(screen, f"🎯 第 {level} 关   👾 剩余 {remaining}",
+        draw_text(screen, f"第 {level} 关   剩余 {remaining}",
                   SCREEN_WIDTH // 2, hud_y + 8, fonts, FONT_M, COLOR_CYAN, center=True)
 
         # 得分（右对齐）
-        score_surf = fonts[FONT_M].render(f"🏆 得分: {w.score}", True, COLOR_YELLOW)
+        score_surf = fonts[FONT_M].render(f"得分: {w.score}", True, COLOR_YELLOW)
         screen.blit(score_surf, (SCREEN_WIDTH - 20 - score_surf.get_width(), hud_y + 8))
 
         # 道具栏（左下角：彩色小方块图标 + 名称 + 倒计时条）——叠加版
@@ -627,20 +633,20 @@ class SinglePlayScreen:
             remain_txt, ratio = "", 0.0
         # 护盾单独显示（次数型，不计时）；只要 shield_active 为 True 就显示盾牌图标
         if shield_on:
-            buff_name = (buff_name + "  🛡") if buff_name != "无" else "🛡护盾"
+            buff_name = (buff_name + " +护盾") if buff_name != "无" else "护盾"
 
-        # 彩色小方块图标（叠加时画多个色块）
+        # 彩色小方块图标（激活道具）+ 盾牌图标（护盾）
         item_y = SCREEN_HEIGHT - 38
         bar_x, bar_y, bar_w, bar_h = 60, SCREEN_HEIGHT - 14, 140, 7
-        if active:
-            icon_x = 60
-            for t in active[:3]:  # 最多画 3 个色块，避免过长
-                pygame.draw.rect(screen, POWERUP_COLORS.get(t, COLOR_WHITE),
-                                 (icon_x, item_y, 14, 14), border_radius=3)
-                icon_x += 18
-            text_x = icon_x + 2
-        else:
-            text_x = 60
+        icon_x = 60
+        for t in active[:3]:  # 最多画 3 个色块，避免过长
+            pygame.draw.rect(screen, POWERUP_COLORS.get(t, COLOR_WHITE),
+                             (icon_x, item_y, 14, 14), border_radius=3)
+            icon_x += 18
+        if shield_on:
+            draw_shield(screen, icon_x, item_y - 1, 16, COLOR_YELLOW)
+            icon_x += 20
+        text_x = icon_x + 2
         draw_text(screen, f"{buff_name} {remain_txt}".strip(),
                   text_x, item_y, fonts, FONT_S, buff_color)
 
@@ -653,14 +659,17 @@ class SinglePlayScreen:
                              (bar_x, bar_y, int(bar_w * ratio), bar_h), border_radius=3)
 
         # 关卡主题提示（黑底白字主题）
-        draw_text(screen, "💠 关卡主题: 浪尖儿学生社区",
+        draw_text(screen, "关卡主题: 浪尖儿学生社区",
                   SCREEN_WIDTH // 2, 60, fonts, FONT_S,
                   COLOR_WHITE, center=True)
 
-        # 友军伤害提示
+        # 友军伤害提示（矢量三角警告图标 + 文本）
         tip_color = COLOR_ORANGE if int(self.time * 2) % 2 == 0 else COLOR_YELLOW
-        draw_text(screen, "⚠️ " + FRIENDLY_FIRE_TIP,
-                  ARENA_X + ARENA_W // 2, ARENA_Y - 14,
+        tip = FRIENDLY_FIRE_TIP
+        tw = fonts[FONT_XS].size(tip)[0]
+        cx_tip = ARENA_X + ARENA_W // 2
+        draw_warning(screen, cx_tip - tw / 2 - 18, ARENA_Y - 16, 12, tip_color)
+        draw_text(screen, tip, cx_tip, ARENA_Y - 14,
                   fonts, FONT_XS, tip_color, center=True)
 
         # 底部按钮 / 操作提示
@@ -697,8 +706,8 @@ class TwoPlayerSelectScreen:
     def _build_buttons(self):
         cx = SCREEN_WIDTH // 2
         bw, bh = 300, 80
-        self.coop_btn = Button(cx - bw // 2, 230, bw, bh, "🤝 合作对抗 AI", FONT_L)
-        self.vs_btn = Button(cx - bw // 2, 340, bw, bh, "⚔️  1v1 对战", FONT_L)
+        self.coop_btn = Button(cx - bw // 2, 230, bw, bh, "合作对抗 AI", FONT_L)
+        self.vs_btn = Button(cx - bw // 2, 340, bw, bh, "1v1 对战", FONT_L)
         self.back_btn = Button(40, SCREEN_HEIGHT - 80, 160, 48, "← 返回菜单", FONT_M)
 
     def enter(self):
@@ -721,18 +730,18 @@ class TwoPlayerSelectScreen:
     def draw(self, screen, fonts):
         draw_bg(screen)
 
-        draw_glow_accent(screen, SCREEN_WIDTH // 2, 70, "👥 双人模式",
+        draw_glow_accent(screen, SCREEN_WIDTH // 2, 70, "双人模式",
                          fonts, FONT_XXL, COLOR_GOLD)
         draw_text(screen, "选择子模式", SCREEN_WIDTH // 2, 140,
                   fonts, FONT_L, COLOR_CYAN, center=True)
 
         # 说明
         draw_panel(screen, 120, 460, SCREEN_WIDTH - 240, 110, alpha=200)
-        draw_text(screen, "🎮 玩家 1:  WASD 移动 + 空格 射击",
+        draw_text(screen, "玩家 1:  WASD 移动 + 空格 射击",
                   160, 490, fonts, FONT_M, COLOR_GREEN)
-        draw_text(screen, "🖱️ 玩家 2:  鼠标移动控制方向+位置，左键射击",
+        draw_text(screen, "玩家 2:  鼠标移动控制方向+位置，左键射击",
                   160, 530, fonts, FONT_M, COLOR_BLUE)
-        draw_text(screen, "⚠️  双人模式不计入坦克解锁的战斗场次统计",
+        draw_text(screen, "双人模式不计入坦克解锁的战斗场次统计",
                   160, 560, fonts, FONT_S, COLOR_ORANGE)
 
         self.coop_btn.draw(screen, fonts)
@@ -779,7 +788,7 @@ class P2TankSelectScreen:
                     self.selected_idx = i
                     break
 
-        self.confirm_btn = Button(SCREEN_WIDTH // 2 - 95, 540, 190, 48, "✔ 确认出战", FONT_L)
+        self.confirm_btn = Button(SCREEN_WIDTH // 2 - 95, 540, 190, 48, "确认出战", FONT_L)
         self.back_btn = Button(40, SCREEN_HEIGHT - 70, 160, 48, "← 返回模式", FONT_M)
 
     def enter(self):
@@ -809,7 +818,7 @@ class P2TankSelectScreen:
         save = get_save(self.game)
         unlocked = save.get("unlocked_tanks", [])
 
-        draw_glow_accent(screen, SCREEN_WIDTH // 2, 55, "🚗 玩家 2 · 选择坦克",
+        draw_glow_accent(screen, SCREEN_WIDTH // 2, 55, "玩家 2 · 选择坦克",
                          fonts, FONT_XXL, COLOR_GOLD)
         draw_text(screen, f"已解锁 {len(unlocked)}/{len(TANK_ORDER)}   |   当前模式: {'合作对抗 AI' if self.game.two_mode == 'coop' else '1v1 对战'}",
                   SCREEN_WIDTH // 2, 110, fonts, FONT_S, COLOR_CYAN, center=True)
@@ -844,27 +853,43 @@ class P2TankSelectScreen:
 
             # 属性
             attr_y = y + 156
-            hp_hearts = "❤️" * info["hp"]
-            draw_text(screen, f"血量 {hp_hearts}", x + 15, attr_y,
-                      fonts, FONT_XS, COLOR_RED if is_unlocked else COLOR_DARK_GRAY)
+            # 血量（心形矢量图标，无 emoji 依赖）
+            draw_text(screen, "血量", x + 15, attr_y, fonts, FONT_XS,
+                      COLOR_RED if is_unlocked else COLOR_DARK_GRAY)
+            draw_hearts(screen, x + 15 + 34, attr_y, info["hp"],
+                        color=COLOR_RED if is_unlocked else COLOR_DARK_GRAY,
+                        size=16, gap=3)
+            # 移速
             draw_text(screen, f"移速 {info['speed']}", x + 15, attr_y + 20,
                       fonts, FONT_XS, COLOR_GREEN if is_unlocked else COLOR_DARK_GRAY)
-            item_text = "无"
+            # 初始道具（彩色圆点 + 名称，避免 emoji 占位）
+            dot_color, item_text = None, "无"
             if info["init_item"] == "scatter":
-                item_text = "🔵散射弹"
+                dot_color, item_text = COLOR_BLUE, "散射弹"
             elif info["init_item"] == "laser":
-                item_text = "🔴激光炮"
+                dot_color, item_text = COLOR_RED, "激光炮"
             elif info["init_item"] == "bounce_scatter":
-                item_text = "🟢🔵弹射+散射"
-            draw_text(screen, f"道具 {item_text}", x + 15, attr_y + 40,
-                      fonts, FONT_XS, COLOR_BLUE if is_unlocked else COLOR_DARK_GRAY)
+                dot_color, item_text = COLOR_GREEN, "弹射+散射"
+            draw_text(screen, "道具", x + 15, attr_y + 40, fonts, FONT_XS,
+                      COLOR_BLUE if is_unlocked else COLOR_DARK_GRAY)
+            if dot_color:
+                pygame.draw.circle(screen, dot_color,
+                                   (x + 15 + 44, attr_y + 40 + FONT_XS // 2 - 1), 6)
+                draw_text(screen, item_text, x + 15 + 56, attr_y + 40, fonts, FONT_XS,
+                          COLOR_BLUE if is_unlocked else COLOR_DARK_GRAY)
+            else:
+                draw_text(screen, item_text, x + 15 + 44, attr_y + 40, fonts, FONT_XS,
+                          COLOR_BLUE if is_unlocked else COLOR_DARK_GRAY)
 
             # 锁定遮罩与解锁条件
             if not is_unlocked:
                 mask = pygame.Surface((w, h), pygame.SRCALPHA)
                 mask.fill((0, 0, 0, 150))
                 screen.blit(mask, (x, y))
-                draw_text(screen, "🔒 未解锁", x + w // 2, y + 40,
+                tw = fonts[FONT_M].size("未解锁")[0]
+                cx = x + w // 2
+                draw_lock(screen, cx - tw // 2 - 22, y + 40 - 8, 16, COLOR_GRAY)
+                draw_text(screen, "未解锁", cx, y + 40,
                           fonts, FONT_M, COLOR_GRAY, center=True)
                 draw_text(screen, "解锁条件:", x + w // 2, y + 205,
                           fonts, FONT_XS, COLOR_LIGHT_GRAY, center=True)
@@ -904,9 +929,9 @@ class TwoPlayScreen:
         self.back_btn = Button(SCREEN_WIDTH - 200, SCREEN_HEIGHT - 70, 170, 44,
                                "← 返回选择", FONT_M)
         self.retry_btn = Button(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 80,
-                                200, 52, "🔄 再来一局", FONT_L)
+                                200, 52, "再来一局", FONT_L)
         self.menu_btn = Button(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 150,
-                               200, 52, "🏠 回主菜单", FONT_L)
+                               200, 52, "回主菜单", FONT_L)
 
     def _start_game(self):
         """初始化双人游戏世界"""
@@ -1009,7 +1034,7 @@ class TwoPlayScreen:
             return
 
         w = self.world
-        mode_txt = "🤝 合作模式" if w.mode == "coop" else "⚔️  对战模式"
+        mode_txt = "合作模式" if w.mode == "coop" else "对战模式"
 
         # ---- 游戏世界 ----
         w.draw(screen, ARENA_X, ARENA_Y, fonts)
@@ -1021,24 +1046,34 @@ class TwoPlayScreen:
         p1 = w.player1
         p1_color = TANK_DATA.get(p1.tank_name, {}).get("color", COLOR_GREEN)
         draw_panel(screen, 15, hud_y, 280, 70, alpha=200)
-        draw_text(screen, "🎮 P1", 30, hud_y + 8, fonts, FONT_M, p1_color)
-        hp1 = "❤️" * max(0, p1.hp) if p1.alive else "💀"
-        draw_text(screen, f"{hp1}  {p1.tank_name}", 30, hud_y + 38, fonts, FONT_S, COLOR_WHITE)
+        draw_text(screen, "P1", 30, hud_y + 8, fonts, FONT_M, p1_color)
+        draw_hearts(screen, 30, hud_y + 34, max(0, p1.hp), p1.max_hp,
+                    COLOR_RED, size=16, gap=3)
+        name_x = 30 + p1.max_hp * (16 + 3) + 6
+        if not p1.alive:
+            draw_text(screen, "阵亡", name_x, hud_y + 38, fonts, FONT_S, COLOR_GRAY)
+            name_x += fonts[FONT_S].size("阵亡")[0] + 8
+        draw_text(screen, p1.tank_name, name_x, hud_y + 38, fonts, FONT_S, COLOR_WHITE)
 
         # 玩家 2 HUD（右上）
         p2 = w.player2
         p2_color = TANK_DATA.get(p2.tank_name, {}).get("color", COLOR_BLUE)
         draw_panel(screen, SCREEN_WIDTH - 295, hud_y, 280, 70, alpha=200)
-        draw_text(screen, "🖱️ P2", SCREEN_WIDTH - 280, hud_y + 8, fonts, FONT_M, p2_color)
-        hp2 = "❤️" * max(0, p2.hp) if p2.alive else "💀"
-        draw_text(screen, f"{hp2}  {p2.tank_name}", SCREEN_WIDTH - 280, hud_y + 38, fonts, FONT_S, COLOR_WHITE)
+        draw_text(screen, "P2", SCREEN_WIDTH - 280, hud_y + 8, fonts, FONT_M, p2_color)
+        draw_hearts(screen, SCREEN_WIDTH - 280, hud_y + 34, max(0, p2.hp),
+                    p2.max_hp, COLOR_RED, size=16, gap=3)
+        name_x2 = SCREEN_WIDTH - 280 + p2.max_hp * (16 + 3) + 6
+        if not p2.alive:
+            draw_text(screen, "阵亡", name_x2, hud_y + 38, fonts, FONT_S, COLOR_GRAY)
+            name_x2 += fonts[FONT_S].size("阵亡")[0] + 8
+        draw_text(screen, p2.tank_name, name_x2, hud_y + 38, fonts, FONT_S, COLOR_WHITE)
 
         # 中间信息
         if w.mode == "coop":
-            draw_text(screen, f"{mode_txt}   |   👾 剩余 {w.remaining_enemies()}   |   🏆 得分 {w.score}",
+            draw_text(screen, f"{mode_txt}   |   剩余 {w.remaining_enemies()}   |   得分 {w.score}",
                       SCREEN_WIDTH // 2, hud_y + 22, fonts, FONT_M, COLOR_CYAN, center=True)
         else:
-            vs_text = "⚔️  击败对方即获胜！"
+            vs_text = "击败对方即获胜！"
             draw_text(screen, f"{mode_txt}   |   {vs_text}",
                       SCREEN_WIDTH // 2, hud_y + 22, fonts, FONT_M, COLOR_ORANGE, center=True)
 
@@ -1046,10 +1081,13 @@ class TwoPlayScreen:
         self._draw_player_item(screen, p1, 60, SCREEN_HEIGHT - 35, fonts)
         self._draw_player_item(screen, p2, SCREEN_WIDTH - 220, SCREEN_HEIGHT - 35, fonts)
 
-        # 友军伤害提示
+        # 友军伤害提示（矢量三角警告图标 + 文本）
         tip_color = COLOR_ORANGE if int(self.time * 2) % 2 == 0 else COLOR_YELLOW
-        draw_text(screen, "⚠️ " + FRIENDLY_FIRE_TIP,
-                  ARENA_X + ARENA_W // 2, ARENA_Y - 14,
+        tip = FRIENDLY_FIRE_TIP
+        tw = fonts[FONT_XS].size(tip)[0]
+        cx_tip = ARENA_X + ARENA_W // 2
+        draw_warning(screen, cx_tip - tw / 2 - 18, ARENA_Y - 16, 12, tip_color)
+        draw_text(screen, tip, cx_tip, ARENA_Y - 14,
                   fonts, FONT_XS, tip_color, center=True)
 
         # 底部操作提示
@@ -1078,7 +1116,7 @@ class TwoPlayScreen:
                 parts.append(str(t))
         name = "+".join(parts) if parts else ""
         if shield_on:
-            name += "+🛡" if name else "🛡"
+            name += "+护盾" if name else "护盾"
         # 颜色：叠加用金色，单道具用其本色
         if len(active) > 1:
             color = COLOR_GOLD
@@ -1111,30 +1149,30 @@ class TwoPlayScreen:
 
         if mode == "coop":
             if result == TwoPlayerGameWorld.RESULT_WIN:
-                title, col = "🏆 合作胜利！", COLOR_GOLD
+                title, col = "合作胜利！", COLOR_GOLD
                 sub = f"共同击毁 {self.world.enemies_killed} 辆敌坦"
             else:
-                title, col = "💀 合作失败", COLOR_RED
+                title, col = "合作失败", COLOR_RED
                 sub = "有玩家被击毁，再接再厉！"
         else:
             if result == TwoPlayerGameWorld.RESULT_P1_WIN:
-                title, col = "🎮 玩家 1 获胜！", COLOR_GREEN
+                title, col = "玩家 1 获胜！", COLOR_GREEN
                 sub = "玩家 2 被击毁"
             elif result == TwoPlayerGameWorld.RESULT_P2_WIN:
-                title, col = "🖱️ 玩家 2 获胜！", COLOR_BLUE
+                title, col = "玩家 2 获胜！", COLOR_BLUE
                 sub = "玩家 1 被击毁"
             else:
-                title, col = "💀 双败", COLOR_RED
+                title, col = "双败", COLOR_RED
                 sub = "同归于尽！"
 
         draw_text(screen, title, px + pw // 2, py + 60, fonts, FONT_XXL, col, center=True)
         draw_text(screen, sub, px + pw // 2, py + 120, fonts, FONT_L, COLOR_LIGHT_GRAY, center=True)
 
         if mode == "coop":
-            draw_text(screen, f"🏆 本局得分: {info['score']}",
+            draw_text(screen, f"本局得分: {info['score']}",
                       px + pw // 2, py + 170, fonts, FONT_M, COLOR_YELLOW, center=True)
 
-        draw_text(screen, "⚠️ 本局不计入解锁统计",
+        draw_text(screen, "本局不计入解锁统计",
                   px + pw // 2, py + 210, fonts, FONT_S, COLOR_GRAY, center=True)
 
         # 两个按钮左右并排（避免垂直重叠导致的误触/遮挡）
@@ -1181,7 +1219,7 @@ class GarageScreen:
         if last in TANK_ORDER:
             self.selected_idx = TANK_ORDER.index(last)
 
-        self.select_btn = Button(SCREEN_WIDTH // 2 - 95, 524, 190, 48, "✔ 选择出战", FONT_L)
+        self.select_btn = Button(SCREEN_WIDTH // 2 - 95, 524, 190, 48, "选择出战", FONT_L)
         self.back_btn = Button(40, SCREEN_HEIGHT - 80, 160, 48, "← 返回菜单", FONT_M)
 
     def enter(self):
@@ -1211,7 +1249,7 @@ class GarageScreen:
         draw_bg(screen)
         save = get_save(self.game)
 
-        draw_glow_accent(screen, SCREEN_WIDTH // 2, 55, "🚗 车 库",
+        draw_glow_accent(screen, SCREEN_WIDTH // 2, 55, "车 库",
                          fonts, FONT_XXL, COLOR_GOLD)
         draw_text(screen, f"已解锁 {len(save['unlocked_tanks'])}/{len(TANK_ORDER)}   |   累计战斗 {save['total_battles']} 场   |   最高通关 {save['highest_level_cleared']} 关",
                   SCREEN_WIDTH // 2, 105, fonts, FONT_S, COLOR_CYAN, center=True)
@@ -1244,23 +1282,33 @@ class GarageScreen:
 
             # 属性
             attr_y = y + 165
-            # 血量
-            hp_hearts = "❤️" * info["hp"]
-            draw_text(screen, f"血量 {hp_hearts}", x + 15, attr_y,
-                      fonts, FONT_XS, COLOR_RED if unlocked else COLOR_DARK_GRAY)
+            # 血量（心形矢量图标，无 emoji 依赖）
+            draw_text(screen, "血量", x + 15, attr_y, fonts, FONT_XS,
+                      COLOR_RED if unlocked else COLOR_DARK_GRAY)
+            draw_hearts(screen, x + 15 + 34, attr_y, info["hp"],
+                        color=COLOR_RED if unlocked else COLOR_DARK_GRAY,
+                        size=16, gap=3)
             # 移速
             draw_text(screen, f"移速 {info['speed']}", x + 15, attr_y + 20,
                       fonts, FONT_XS, COLOR_GREEN if unlocked else COLOR_DARK_GRAY)
-            # 初始道具
-            item_text = "无"
+            # 初始道具（彩色圆点 + 名称，避免 emoji 占位）
+            dot_color, item_text = None, "无"
             if info["init_item"] == "scatter":
-                item_text = "🔵散射弹"
+                dot_color, item_text = COLOR_BLUE, "散射弹"
             elif info["init_item"] == "laser":
-                item_text = "🔴激光炮"
+                dot_color, item_text = COLOR_RED, "激光炮"
             elif info["init_item"] == "bounce_scatter":
-                item_text = "🟢🔵弹射+散射"
-            draw_text(screen, f"道具 {item_text}", x + 15, attr_y + 40,
-                      fonts, FONT_XS, COLOR_BLUE if unlocked else COLOR_DARK_GRAY)
+                dot_color, item_text = COLOR_GREEN, "弹射+散射"
+            draw_text(screen, "道具", x + 15, attr_y + 40, fonts, FONT_XS,
+                      COLOR_BLUE if unlocked else COLOR_DARK_GRAY)
+            if dot_color:
+                pygame.draw.circle(screen, dot_color,
+                                   (x + 15 + 44, attr_y + 40 + FONT_XS // 2 - 1), 6)
+                draw_text(screen, item_text, x + 15 + 56, attr_y + 40, fonts, FONT_XS,
+                          COLOR_BLUE if unlocked else COLOR_DARK_GRAY)
+            else:
+                draw_text(screen, item_text, x + 15 + 44, attr_y + 40, fonts, FONT_XS,
+                          COLOR_BLUE if unlocked else COLOR_DARK_GRAY)
 
             # 解锁条件 / 锁定遮罩
             if not unlocked:
@@ -1268,7 +1316,10 @@ class GarageScreen:
                 mask = pygame.Surface((w, h), pygame.SRCALPHA)
                 mask.fill((0, 0, 0, 150))
                 screen.blit(mask, (x, y))
-                draw_text(screen, "🔒 未解锁", x + w // 2, y + 30,
+                tw = fonts[FONT_L].size("未解锁")[0]
+                cx = x + w // 2
+                draw_lock(screen, cx - tw // 2 - 26, y + 30 - 10, 20, COLOR_GRAY)
+                draw_text(screen, "未解锁", cx, y + 30,
                           fonts, FONT_L, COLOR_GRAY, center=True)
                 draw_text(screen, "解锁条件:", x + w // 2, y + 210,
                           fonts, FONT_XS, COLOR_LIGHT_GRAY, center=True)
@@ -1296,20 +1347,20 @@ class GarageScreen:
         selected_unlocked = selected_name in save.get("unlocked_tanks", [])
         panel_x, panel_y, panel_w, panel_h = 80, 420, SCREEN_WIDTH - 160, 100
         draw_panel(screen, panel_x, panel_y, panel_w, panel_h, alpha=220)
-        draw_text(screen, f"📋 {selected_name} - 详细属性",
+        draw_text(screen, f"{selected_name} - 详细属性",
                   panel_x + 25, panel_y + 15, fonts, FONT_M,
                   selected_info["color"] if selected_unlocked else COLOR_GRAY)
         desc = selected_info["description"]
-        draw_text(screen, "📖 " + desc,
+        draw_text(screen, desc,
                   panel_x + 25, panel_y + 52, fonts, FONT_S,
                   COLOR_LIGHT_GRAY if selected_unlocked else COLOR_DARK_GRAY)
         if not selected_unlocked:
-            draw_text(screen, f"🔒 解锁条件: {selected_info['unlock_desc']}",
+            draw_text(screen, f"解锁条件: {selected_info['unlock_desc']}",
                       panel_x + 25, panel_y + 82, fonts, FONT_S, COLOR_ORANGE)
         else:
             last = save.get("last_selected_tank", "")
             if last == selected_name:
-                draw_text(screen, "✔ 当前出战坦克",
+                draw_text(screen, "当前出战坦克",
                           panel_x + panel_w - 200, panel_y + 82, fonts, FONT_S, COLOR_GREEN)
             else:
                 draw_text(screen, "↓ 点击下方按钮选为出战坦克",

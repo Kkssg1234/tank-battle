@@ -153,11 +153,13 @@ TANK_DATA = {
 TANK_ORDER = ["轻型侦察车", "重装突击车", "激光狙击车", "KZY 终极战车", "跳弹游骑兵"]
 
 # ===== 道具数据 =====
+# 注：icon 字段为内部标识（非渲染字形），UI 中道具图标由 screens.py 用 pygame 彩色圆点绘制，
+# 不使用 emoji（pygame Monochrome 字体无法渲染 emoji，会留下空格占位）。
 ITEM_DATA = {
-    "laser": {"name": "激光炮", "icon": "🔴", "color": COLOR_RED, "desc": "子弹穿透障碍和敌人"},
-    "bounce": {"name": "弹射弹", "icon": "🟢", "color": COLOR_GREEN, "desc": "子弹弹射2次，注意误伤"},
-    "scatter": {"name": "散射弹", "icon": "🔵", "color": COLOR_BLUE, "desc": "一次发射3发扇形子弹"},
-    "shield": {"name": "护盾", "icon": "🟡", "color": COLOR_YELLOW, "desc": "免疫下一次伤害"},
+    "laser": {"name": "激光炮", "icon": "red", "color": COLOR_RED, "desc": "子弹穿透障碍和敌人"},
+    "bounce": {"name": "弹射弹", "icon": "green", "color": COLOR_GREEN, "desc": "子弹弹射2次，注意误伤"},
+    "scatter": {"name": "散射弹", "icon": "blue", "color": COLOR_BLUE, "desc": "一次发射3发扇形子弹"},
+    "shield": {"name": "护盾", "icon": "yellow", "color": COLOR_YELLOW, "desc": "免疫下一次伤害"},
 }
 
 # ===== 关卡数量 =====

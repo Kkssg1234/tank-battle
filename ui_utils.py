@@ -2,6 +2,7 @@
 UI工具模块 - 按钮、文字绘制、背景渲染等通用UI组件
 """
 import os
+import math
 
 import pygame
 from constants import *
@@ -303,6 +304,82 @@ def draw_tank_icon(screen, x, y, color, size=48, unlocked=True):
     pygame.draw.rect(screen, color,
                      (cx - barrel_w // 2, cy - int(size * 0.05) - barrel_h,
                       barrel_w, barrel_h), border_radius=2)
+
+
+# ===========================================================================
+# 矢量图标（2026-08-24）：用 pygame 形状绘制，避免依赖 emoji 字形
+# pygame 使用 Monochrome 字体，emoji（❤️/💀/🎮…）在网页/本地均无法渲染，
+# 会留下空格占位。这些图标保证双端一致显示。
+# ===========================================================================
+def draw_heart(screen, x, y, size, color, filled=True, width=2):
+    """在 (x,y) 为左上角、size×size 区域内绘制心形。filled=False 为空心（空血槽）。"""
+    s = size
+    lobe_r = s * 0.25
+    cy = y + s * 0.33
+    cx1 = x + s * 0.25
+    cx2 = x + s * 0.75
+    tip_x = x + s * 0.5
+    tip_y = y + s
+    if filled:
+        pygame.draw.circle(screen, color, (cx1, cy), lobe_r)
+        pygame.draw.circle(screen, color, (cx2, cy), lobe_r)
+        pygame.draw.polygon(screen, color, [(x, cy), (x + s, cy), (tip_x, tip_y)])
+    else:
+        pygame.draw.circle(screen, color, (cx1, cy), lobe_r, width=width)
+        pygame.draw.circle(screen, color, (cx2, cy), lobe_r, width=width)
+        pygame.draw.polygon(screen, color, [(x, cy), (x + s, cy), (tip_x, tip_y)], width=width)
+
+
+def draw_hearts(screen, x, y, count, max_count=None, color=COLOR_RED,
+                size=18, gap=4, empty_color=(90, 100, 130)):
+    """绘制一排心形血槽：count 个实心 + (max_count-count) 个空心。"""
+    total = max_count if max_count is not None else count
+    total = max(total, count)
+    for i in range(total):
+        hx = x + i * (size + gap)
+        if i < count:
+            draw_heart(screen, hx, y, size, color, filled=True)
+        else:
+            draw_heart(screen, hx, y, size, empty_color, filled=False)
+
+
+def draw_lock(screen, x, y, size, color):
+    """在 (x,y) 为左上角绘制小锁图标（未解锁提示）。"""
+    bw, bh = size, int(size * 0.78)
+    bx, by = x, y + int(size * 0.22)
+    pygame.draw.rect(screen, color, (bx, by, bw, bh), border_radius=3)
+    sh = int(size * 0.55)
+    pygame.draw.arc(screen, color, (x + (size - sh) // 2, by - sh // 2, sh, sh),
+                    math.radians(180), math.radians(360),
+                    width=max(2, size // 10))
+    pygame.draw.circle(screen, (0, 0, 0), (x + size // 2, by + bh // 2),
+                       max(1, size // 12))
+
+
+def draw_shield(screen, x, y, size, color):
+    """在 (x,y) 为左上角绘制小盾牌图标（护盾道具）。"""
+    w = size
+    h = int(size * 1.15)
+    pts = [
+        (x + w // 2, y),
+        (x + w, y + h * 0.30),
+        (x + w * 0.82, y + h),
+        (x + w // 2, y + h * 0.82),
+        (x + w * 0.18, y + h),
+        (x, y + h * 0.30),
+    ]
+    pygame.draw.polygon(screen, color, pts)
+    pygame.draw.circle(screen, (0, 0, 0), (x + w // 2, y + h * 0.45),
+                       max(1, size // 10))
+
+
+def draw_warning(screen, x, y, size, color):
+    """在 (x,y) 为左上角绘制三角警告图标（友军伤害提示）。"""
+    pts = [(x + size // 2, y), (x + size, y + size), (x, y + size)]
+    pygame.draw.polygon(screen, color, pts)
+    pygame.draw.rect(screen, (0, 0, 0), (x + size // 2 - 1, y + size * 0.32,
+                                         2, size * 0.34), border_radius=1)
+    pygame.draw.circle(screen, (0, 0, 0), (x + size // 2, y + size * 0.82), 1)
 
 
 # ===========================================================================
