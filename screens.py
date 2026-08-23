@@ -15,6 +15,16 @@ from game_world import GameWorld, TwoPlayerGameWorld
 from level_manager import LevelManager
 from powerup import (POWERUP_NAMES, POWERUP_COLORS,
                      POWERUP_DURATION, PERMA_BUFF_THRESHOLD)
+from web_download import is_browser, download_save
+
+
+# ===== 浏览器环境判定（与 save_manager / ui_utils 一致）=====
+try:
+    import platform as _platform_mod
+
+    _IN_BROWSER = _platform_mod.system() == "Emscripten"
+except Exception:
+    _IN_BROWSER = False
 
 
 # ===== 双端存档读写辅助（浏览器/本地通用）=====
@@ -46,6 +56,9 @@ class MenuScreen:
         self.game = game
         self.buttons = []
         self.time = 0
+        self.toast = ""          # 下载结果提示气泡
+        self.toast_timer = 0.0
+        self.download_btn = None
         self._build_buttons()
 
     def _build_buttons(self):
@@ -59,6 +72,15 @@ class MenuScreen:
             Button(cx - bw // 2, sy + (bh + gap) * 2, bw, bh, "🚗 车库", FONT_L),
             Button(cx - bw // 2, sy + (bh + gap) * 3, bw, bh, "❌ 退出游戏", FONT_L),
         ]
+        # 网页版：浏览器无法真正「退出」，禁用退出按钮，避免点击后画面冻结
+        if _IN_BROWSER:
+            self.buttons[-1].disabled = True
+        # 网页版专属功能入口：下载存档到本地设备
+        if _IN_BROWSER:
+            self.download_btn = Button(cx - 130, 556, 260, 40,
+                                       "📥 下载存档到本地", FONT_M)
+        else:
+            self.download_btn = None
 
     def enter(self):
         self._build_buttons()
@@ -75,9 +97,20 @@ class MenuScreen:
                 elif i == 3:
                     self.game.running = False
                 return
+        # 网页版：下载存档到本地
+        if self.download_btn is not None and self.download_btn.handle_event(event):
+            ok = download_save(self.game)
+            self.toast = ("✅ 存档已下载：tank-battle-save.json"
+                         if ok else "⚠️ 当前环境不支持下载")
+            self.toast_timer = 3.0
+            return
 
     def update(self, dt):
         self.time += dt
+        if self.toast_timer > 0:
+            self.toast_timer -= dt
+            if self.toast_timer <= 0:
+                self.toast = ""
 
     def draw(self, screen, fonts):
         draw_bg(screen)
@@ -102,6 +135,17 @@ class MenuScreen:
 
         for btn in self.buttons:
             btn.draw(screen, fonts)
+
+        # 网页版：下载存档入口 + 操作提示
+        if self.download_btn is not None:
+            self.download_btn.draw(screen, fonts)
+            draw_text(screen, "网页版专属：将游戏进度保存为文件下载到本机",
+                      SCREEN_WIDTH // 2, 602, fonts, FONT_XS, COLOR_LIGHT_GRAY, center=True)
+
+        # 下载结果提示气泡（顶部居中，3 秒后自动消失）
+        if self.toast:
+            draw_text(screen, self.toast, SCREEN_WIDTH // 2, 44,
+                      fonts, FONT_M, COLOR_GREEN, center=True)
 
         # 底部版本号
         draw_text(screen, "v1.1.0  Core Playable", 20, SCREEN_HEIGHT - 30,

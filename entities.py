@@ -69,11 +69,11 @@ class BaseTank:
             ux, uy = 0.0, 0.0
         new_x = self.x + ux * speed
         new_y = self.y + uy * speed
-        # 边界/地形碰撞
+        # 边界/地形碰撞（轴分离：先判 X、再判 Y，Y 用最新的 new_x 判定，
+        # 避免斜向撞墙拐角时坦克卡进墙体）
         if not game_map.can_tank_occupy(new_x, self.y, TANK_SIZE):
             new_x = self.x
-        if not game_map.can_tank_occupy(self.x if new_x != self.x else new_x,
-                                         new_y, TANK_SIZE):
+        if not game_map.can_tank_occupy(new_x, new_y, TANK_SIZE):
             new_y = self.y
         # 与其他坦克碰撞
         if other_tanks:

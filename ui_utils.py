@@ -97,38 +97,50 @@ def draw_text(screen, text, x, y, fonts, font_size=FONT_M, color=COLOR_WHITE,
     return text_rect
 
 
+# 背景缓存：每帧重复绘制 640+ 条线代价很高（wasm 浏览器尤其明显），
+# 预烘焙一次后每帧仅一次 blit。
+_BG_CACHE = None
+
+
 def draw_bg(screen):
-    """绘制深蓝色科技风背景（设计系统升级版：垂直渐变 + 顶部光带 + 角落辉光）"""
-    # 1) 垂直渐变底色（上深下稍亮，营造纵深）
-    top = UI_BG_DEEP
-    bot = (16, 30, 66)
-    for y in range(SCREEN_HEIGHT):
-        t = y / SCREEN_HEIGHT
-        c = (int(top[0] + (bot[0] - top[0]) * t),
-             int(top[1] + (bot[1] - top[1]) * t),
-             int(top[2] + (bot[2] - top[2]) * t))
-        pygame.draw.line(screen, c, (0, y), (SCREEN_WIDTH, y))
+    """绘制深蓝色科技风背景（设计系统升级版：垂直渐变 + 顶部光带 + 角落辉光）。
+    背景为静态内容，预烘焙到 _BG_CACHE，每帧只做一次 blit，避免逐帧重绘数百条线。"""
+    global _BG_CACHE
+    if _BG_CACHE is None:
+        surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        # 1) 垂直渐变底色（上深下稍亮，营造纵深）
+        top = UI_BG_DEEP
+        bot = (16, 30, 66)
+        for y in range(SCREEN_HEIGHT):
+            t = y / SCREEN_HEIGHT
+            c = (int(top[0] + (bot[0] - top[0]) * t),
+                 int(top[1] + (bot[1] - top[1]) * t),
+                 int(top[2] + (bot[2] - top[2]) * t))
+            pygame.draw.line(surf, c, (0, y), (SCREEN_WIDTH, y))
 
-    # 2) 顶部光带（一条更亮的横向高光，强化视觉焦点）
-    band = pygame.Surface((SCREEN_WIDTH, 6), pygame.SRCALPHA)
-    band.fill((COLOR_CYAN[0], COLOR_CYAN[1], COLOR_CYAN[2], 30))
-    screen.blit(band, (0, 0))
+        # 2) 顶部光带（一条更亮的横向高光，强化视觉焦点）
+        band = pygame.Surface((SCREEN_WIDTH, 6), pygame.SRCALPHA)
+        band.fill((COLOR_CYAN[0], COLOR_CYAN[1], COLOR_CYAN[2], 30))
+        surf.blit(band, (0, 0))
 
-    # 3) 网格线（更淡，不抢主体）
-    grid_size = 40
-    grid_col = (14, 26, 56)
-    for x in range(0, SCREEN_WIDTH, grid_size):
-        pygame.draw.line(screen, grid_col, (x, 0), (x, SCREEN_HEIGHT), 1)
-    for y in range(0, SCREEN_HEIGHT, grid_size):
-        pygame.draw.line(screen, grid_col, (0, y), (SCREEN_WIDTH, y), 1)
+        # 3) 网格线（更淡，不抢主体）
+        grid_size = 40
+        grid_col = (14, 26, 56)
+        for x in range(0, SCREEN_WIDTH, grid_size):
+            pygame.draw.line(surf, grid_col, (x, 0), (x, SCREEN_HEIGHT), 1)
+        for y in range(0, SCREEN_HEIGHT, grid_size):
+            pygame.draw.line(surf, grid_col, (0, y), (SCREEN_WIDTH, y), 1)
 
-    # 4) 装饰性边框光点（保留原有点阵，呼应科技风）
-    for i in range(0, SCREEN_WIDTH, 80):
-        pygame.draw.circle(screen, COLOR_CYAN, (i, 8), 2)
-        pygame.draw.circle(screen, COLOR_CYAN, (i, SCREEN_HEIGHT - 9), 2)
-    for i in range(0, SCREEN_HEIGHT, 80):
-        pygame.draw.circle(screen, COLOR_CYAN, (8, i), 2)
-        pygame.draw.circle(screen, COLOR_CYAN, (SCREEN_WIDTH - 9, i), 2)
+        # 4) 装饰性边框光点（保留原有点阵，呼应科技风）
+        for i in range(0, SCREEN_WIDTH, 80):
+            pygame.draw.circle(surf, COLOR_CYAN, (i, 8), 2)
+            pygame.draw.circle(surf, COLOR_CYAN, (i, SCREEN_HEIGHT - 9), 2)
+        for i in range(0, SCREEN_HEIGHT, 80):
+            pygame.draw.circle(surf, COLOR_CYAN, (8, i), 2)
+            pygame.draw.circle(surf, COLOR_CYAN, (SCREEN_WIDTH - 9, i), 2)
+
+        _BG_CACHE = surf
+    screen.blit(_BG_CACHE, (0, 0))
 
 
 def draw_corner_logo(screen, fonts):

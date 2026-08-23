@@ -37,8 +37,10 @@ class Game:
     def __init__(self):
         pygame.init()
         pygame.display.set_caption(TITLE)
-        # 浏览器（wasm）不支持 FULLSCREEN 标志，统一使用窗口/SCALED
-        flags = pygame.SCALED if _IN_BROWSER else (pygame.FULLSCREEN | pygame.SCALED)
+        # 浏览器（wasm）无软件缩放器，pygbag 的 canvas 后端不支持 pygame.SCALED /
+        # RESIZABLE / FULLSCREEN，用了会导致画布渲染到空白离屏表面 → 黑屏。
+        # 故浏览器端 flags=0，由浏览器/CSS 负责缩放；桌面端保留全屏+缩放。
+        flags = 0 if _IN_BROWSER else (pygame.FULLSCREEN | pygame.SCALED)
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
         self.clock = pygame.time.Clock()
         self.fonts = load_fonts()
@@ -99,7 +101,16 @@ class Game:
     async def run_async(self):
         """主循环（浏览器异步版）。"""
         await self.load_save()
-        self._loop_async()
+        # 主动隐藏 pygbag 的加载提示框（#infobox，z-index:999999，覆盖全屏）。
+        # 该提示框原本在 shell.source(main) 返回后才隐藏，但本游戏主循环是无限循环、
+        # shell.source 永不返回，故模板永远不会隐藏它 → 绿框一直挡在画面最上层。
+        # 这里在游戏一开始主动隐藏，避免遮挡。
+        if _IN_BROWSER:
+            try:
+                platform.window.infobox.style.display = "none"
+            except Exception:
+                pass
+        await self._loop_async()
 
     def _event_dispatch(self, event):
         """事件分发（本地与浏览器共用）。"""
@@ -139,7 +150,7 @@ class Game:
         pygame.quit()
         sys.exit(0)
 
-    def _loop_async(self):
+    async def _loop_async(self):
         """异步主循环体（pygbag 要求 await asyncio.sleep(0)）。"""
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0  # 秒
@@ -155,7 +166,7 @@ class Game:
             if current and hasattr(current, "draw"):
                 current.draw(self.screen, self.fonts)
             pygame.display.flip()
-            asyncio.sleep(0)  # 让出控制权，pygbag 必需
+            await asyncio.sleep(0)  # 让出控制权给事件循环，pygbag 必需
 
 
 def main():

@@ -72,6 +72,7 @@ ui_utils.py / vfx.py / constants.py
 - 首次加载较慢（需下载 Python wasm 运行时），之后会被浏览器缓存。
 - 操作与桌面版一致：WASD 移动 / 空格或 J 射击（P1）；鼠标 + 左键（P2）。
 - 网页版存档使用浏览器本地存储（`platform.storage`），进度保存在当前浏览器，不与桌面版共用。
+- 网页版专属功能「📥 下载存档到本地」：主菜单提供入口，可将当前游戏进度导出为 `tank-battle-save.json` 下载到本机设备（基于 Blob 原生下载，兼容 Chrome / Firefox / Edge / Safari 等主流浏览器；小文件自动回退 data URI）。点击后顶部会显示「✅ 存档已下载」提示。
 
 ### 本地预览网页版
 
@@ -88,4 +89,6 @@ pygbag --build .            # 产物在 build/web/
 - `main.py`：桌面走同步 `run()`，浏览器走异步 `run_async()` + `await asyncio.sleep(0)`
 - `save_manager.py`：桌面写本地 `save.json`，浏览器走 `platform.storage` 异步持久化
 - `ui_utils.py`：浏览器端字体回退到内置默认字体，避免依赖系统字体路径
+- 浏览器端显示标志使用 `flags=0`（不使用 `pygame.SCALED`/`FULLSCREEN`，canvas 后端无软件缩放器，使用会导致黑屏），并在游戏启动后主动隐藏 pygbag 加载提示框
+- `web_download.py`：网页版「下载到本地」辅助模块（仅浏览器生效，桌面端安全 no-op）
 - 浏览器端自动去除 `FULLSCREEN` 显示标志
