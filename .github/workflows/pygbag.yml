@@ -1,0 +1,92 @@
+name: Build and Deploy Pygame to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pygbag
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygbag==0.9.3
+
+      - name: Build with pygbag
+        run: |
+          python -m pygbag --build --app_name tank_battle --title "坦克大战" --can_close 1 .
+
+      - name: Clean private files from build bundle
+        # pygbag 默认用目录名（中文）命名 apk；先重命名为英文，再剔除隐私/开发文件
+        run: |
+          cd build/web
+          # 重命名为英文，避免 URL 编码问题
+          if [ -f "坦克大战.apk" ]; then mv "坦克大战.apk" "tank_battle.apk"; fi
+          if [ -f "坦克大战.tar.gz" ]; then mv "坦克大战.tar.gz" "tank_battle.tar.gz"; fi
+          # 修正 index.html 中对中文文件名的引用
+          python - <<'PY'
+          p = "index.html"
+          s = open(p, encoding="utf-8").read()
+          for a, b in [('坦克大战.apk','tank_battle.apk'),('坦克大战.tar.gz','tank_battle.tar.gz'),
+                       ('bundle = "坦克大战"','bundle = "tank_battle"'),('archive : "坦克大战"','archive : "tank_battle"')]:
+              s = s.replace(a, b)
+          open(p, "w", encoding="utf-8").write(s)
+          print("index.html fixed")
+          PY
+          # 从压缩包内剔除 .workbuddy 记忆与真实存档
+          python - <<'PY'
+          import tarfile, io, os
+          apk = "tank_battle.tar.gz"
+          if os.path.exists(apk):
+              buf = io.BytesIO()
+              with tarfile.open(apk, "r:gz") as t:
+                  members = t.getmembers()
+                  kept = 0
+                  with tarfile.open(buf, "w:gz") as out:
+                      for m in members:
+                          if m.name.startswith("assets/.workbuddy") or m.name == "assets/save.json":
+                              continue
+                          out.addfile(m, t.extractfile(m))
+                          kept += 1
+                  print("kept", kept, "members")
+              with open(apk, "wb") as f:
+                  f.write(buf.getvalue())
+          PY
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,33 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# 本地存档（用户进度数据，不入库；保留 save.json.example 作为模板）
+save.json
+*.tmp
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# WorkBuddy 本地工作区（项目内私有数据，不入库）
+.workbuddy/
+
+# pygbag 构建产物（由 GitHub Actions 自动生成，不入库）
+build/
+build/web-cache/
+
+# 测试/临时脚本
+test_*.py
+!requirements.txt
+
