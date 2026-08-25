@@ -39,9 +39,38 @@ class Game:
         pygame.display.set_caption(TITLE)
         # 浏览器（wasm）无软件缩放器，pygbag 的 canvas 后端不支持 pygame.SCALED /
         # RESIZABLE / FULLSCREEN，用了会导致画布渲染到空白离屏表面 → 黑屏。
-        # 故浏览器端 flags=0，由浏览器/CSS 负责缩放；桌面端保留全屏+缩放。
-        flags = 0 if _IN_BROWSER else (pygame.FULLSCREEN | pygame.SCALED)
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
+        # 故浏览器端 flags=0，由浏览器/CSS 负责缩放。
+        # 桌面端：用「离屏 960x640 画布绘制 + 等比 letterbox 放大铺满全屏」替代旧的
+        # pygame.SCALED|FULLSCREEN——后者会拉伸形变且非整数倍放大发虚；新方案保持
+        # 正确宽高比（黑边留白）、画面锐利，鼠标坐标在事件循环中映射回画布空间。
+        self.native_w = SCREEN_WIDTH
+        self.native_h = SCREEN_HEIGHT
+        self._fit_scale = 1.0
+        self._fit_x = 0
+        self._fit_y = 0
+        self.use_offscreen = False          # 标志：是否走离屏→显示 的放大流程
+        if _IN_BROWSER:
+            self.screen = self.display = pygame.display.set_mode(
+                (SCREEN_WIDTH, SCREEN_HEIGHT), 0)
+        else:
+            info = pygame.display.Info()
+            nw = getattr(info, "current_w", 0) or 0
+            nh = getattr(info, "current_h", 0) or 0
+            # 取不到真实分辨率（无头/虚拟显示）时回退到窗口模式，避免 set_mode 报错
+            if nw > 0 and nh > 0:
+                self.native_w, self.native_h = nw, nh
+                self.screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+                try:
+                    self.display = pygame.display.set_mode((nw, nh), pygame.FULLSCREEN)
+                except Exception:
+                    self.display = pygame.display.set_mode(
+                        (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED)
+                    self.screen = self.display
+                self.use_offscreen = self.screen is not self.display
+            else:
+                self.screen = self.display = pygame.display.set_mode(
+                    (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED)
+            self._compute_fit()
         self.clock = pygame.time.Clock()
         self.fonts = load_fonts()
 
@@ -84,13 +113,77 @@ class Game:
         if screen and hasattr(screen, "enter"):
             screen.enter()
 
+    def _compute_fit(self):
+        """计算离屏画布 → 显示分辨率的等比适配矩形（letterbox 居中）。"""
+        self._fit_scale = 1.0
+        self._fit_x = 0
+        self._fit_y = 0
+        if not self.use_offscreen:
+            return
+        sw, sh = SCREEN_WIDTH, SCREEN_HEIGHT
+        scale = min(self.native_w / sw, self.native_h / sh)
+        if scale <= 0:
+            scale = 1.0
+        self._fit_scale = scale
+        self._fit_w = int(round(sw * scale))
+        self._fit_h = int(round(sh * scale))
+        self._fit_x = (self.native_w - self._fit_w) // 2
+        self._fit_y = (self.native_h - self._fit_h) // 2
+
+    def map_mouse(self, pos):
+        """把显示分辨率下的鼠标坐标映射回 960x640 画布坐标（非离屏模式原样返回）。"""
+        if not self.use_offscreen:
+            return pos
+        x = (pos[0] - self._fit_x) / self._fit_scale
+        y = (pos[1] - self._fit_y) / self._fit_scale
+        return (int(x), int(y))
+
+    def _present(self):
+        """提交一帧：离屏模式做等比放大铺满；否则直接 flip。"""
+        if not self.use_offscreen:
+            pygame.display.flip()
+            return
+        self.display.fill((0, 0, 0))
+        scaled = pygame.transform.smoothscale(
+            self.screen, (self._fit_w, self._fit_h))
+        self.display.blit(scaled, (self._fit_x, self._fit_y))
+        pygame.display.flip()
+
     def toggle_fullscreen(self):
         """切换全屏 / 窗口模式（F11，浏览器端忽略）。"""
         if _IN_BROWSER:
             return
-        flags = pygame.FULLSCREEN | pygame.SCALED if getattr(self, "fullscreen", True) else 0
-        self.fullscreen = not getattr(self, "fullscreen", True)
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
+        if self.use_offscreen:
+            # 退出全屏 → 窗口模式（SCALED 放大，鼠标由 SCALED 自动映射）
+            self.display = pygame.display.set_mode(
+                (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED)
+            self.screen = self.display
+            self.use_offscreen = False
+            self._compute_fit()
+            return
+        # 进入全屏：离屏画布 + 等比 letterbox
+        info = pygame.display.Info()
+        nw = getattr(info, "current_w", 0) or SCREEN_WIDTH
+        nh = getattr(info, "current_h", 0) or SCREEN_HEIGHT
+        self.native_w, self.native_h = nw, nh
+        if nw > 0 and nh > 0:
+            self.screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            try:
+                self.display = pygame.display.set_mode((nw, nh), pygame.FULLSCREEN)
+            except Exception:
+                self.display = pygame.display.set_mode(
+                    (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED)
+                self.screen = self.display
+                self.use_offscreen = False
+                self._compute_fit()
+                return
+            self.use_offscreen = True
+        else:
+            self.display = pygame.display.set_mode(
+                (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED)
+            self.screen = self.display
+            self.use_offscreen = False
+        self._compute_fit()
 
     def run(self):
         """主循环（本地同步版）。"""
@@ -117,6 +210,10 @@ class Game:
         if event.type == pygame.QUIT:
             self.running = False
             return
+        # 离屏模式：把鼠标坐标映射回 960x640 画布空间（保证按钮/瞄准命中正确）
+        if self.use_offscreen and event.type in (
+                pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+            event.pos = self.map_mouse(event.pos)
         # 全局快捷键
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_F11:
@@ -146,7 +243,7 @@ class Game:
                 current.update(dt)
             if current and hasattr(current, "draw"):
                 current.draw(self.screen, self.fonts)
-            pygame.display.flip()
+            self._present()
         pygame.quit()
         sys.exit(0)
 
@@ -165,7 +262,7 @@ class Game:
                 current.update(dt)
             if current and hasattr(current, "draw"):
                 current.draw(self.screen, self.fonts)
-            pygame.display.flip()
+            self._present()
             await asyncio.sleep(0)  # 让出控制权给事件循环，pygbag 必需
 
 

@@ -11,7 +11,7 @@ from ui_utils import (Button, draw_text, draw_bg, draw_corner_logo, draw_panel,
                       draw_tank_icon, draw_card, draw_badge, draw_progress_bar,
                       draw_glow_accent, draw_divider,
                       draw_hearts, draw_lock, draw_shield, draw_warning)
-from vfx import draw_glow
+from vfx import draw_glow, draw_vignette
 from save_manager import SaveManager, ScoreSystem
 from game_world import GameWorld, TwoPlayerGameWorld
 from level_manager import LevelManager
@@ -118,6 +118,20 @@ class MenuScreen:
         draw_bg(screen)
         cx = SCREEN_WIDTH // 2
 
+        # ---------- 屏幕暗角（边缘压暗，增强纵深）----------
+        draw_vignette(screen, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, strength=95)
+
+        # ---------- 四角科技括号（白钢 L 形边框，营造机舱框架感）----------
+        _m, _L, _t = 14, 28, 3
+        _bk = COLOR_BTN_BORDER
+        _bw, _bh = SCREEN_WIDTH, SCREEN_HEIGHT
+        for (_ox, _oy, _dx, _dy) in [
+            (_m, _m, 1, 1), (_bw - _m, _m, -1, 1),
+            (_m, _bh - _m, 1, -1), (_bw - _m, _bh - _m, -1, -1),
+        ]:
+            pygame.draw.line(screen, _bk, (_ox, _oy), (_ox + _dx * _L, _oy), _t)
+            pygame.draw.line(screen, _bk, (_ox, _oy), (_ox, _oy + _dy * _L), _t)
+
         # ---------- 背景装饰：固定的极淡十字准星（固定种子，不逐帧抖动）----------
         _rng = random.Random(20260825)
         for _ in range(4):
@@ -129,6 +143,8 @@ class MenuScreen:
 
         # 标题 - 浮动 + 呼吸灯辉光（alpha 随时间正弦波动）
         title_y = 92 + math.sin(self.time * 2) * 4
+        # 标题背后金色聚光（径向辉光，营造舞台光感；纯缓存辉光，零每帧分配）
+        draw_glow(screen, cx, title_y, 280, COLOR_GOLD, alpha=30)
         title_font = fonts.get(FONT_XXL, fonts[FONT_M])
         title_surf = title_font.render("坦 克 大 战", True, COLOR_GOLD)
         breath = 0.85 + 0.15 * math.sin(self.time * 3)   # 0.70 ~ 1.00
@@ -167,6 +183,13 @@ class MenuScreen:
                 (dcx - diamond_s // 2, dcy),
             ])
 
+        # 副标题下方呼吸青色装饰线（呼应扫描线主题，亮度随呼吸起伏）
+        _pulse = 0.5 + 0.5 * math.sin(self.time * 2.5)
+        _lw = sub_w // 2 + 24
+        _ly = sub_y + 30
+        _line_col = (int(110 + 90 * _pulse), int(200 + 40 * _pulse), int(220 + 30 * _pulse))
+        pygame.draw.line(screen, _line_col, (cx - _lw, _ly), (cx + _lw, _ly), 2)
+
         draw_text(screen, "浪尖儿大学生社区 · 竞赛附加题", SCREEN_WIDTH // 2, title_y + 112,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
 
@@ -178,6 +201,9 @@ class MenuScreen:
         draw_card(screen, info_x, 226, info_w, 28, alpha=200)
         draw_text(screen, info, SCREEN_WIDTH // 2, 240,
                   fonts, FONT_S, COLOR_YELLOW, center=True)
+
+        # 按钮组玻璃面板包裹（把 CTA 聚拢成一台「控制台」，与 HUD 玻璃质感统一）
+        draw_glass_panel(screen, cx - 170, 256, 340, 308, alpha=150)
 
         # 按钮组上方提示
         draw_text(screen, "选择游戏模式", SCREEN_WIDTH // 2, 262,
@@ -415,7 +441,7 @@ class ResultScreen:
         pw, ph = self.PW, self.PH
         px = (SCREEN_WIDTH - pw) // 2
         py = (SCREEN_HEIGHT - ph) // 2
-        draw_panel(screen, px, py, pw, ph, alpha=245)
+        draw_glass_panel(screen, px, py, pw, ph, alpha=245)
 
         if self.victory:
             title, col = "胜 利 !", COLOR_GOLD
@@ -821,7 +847,7 @@ class TwoPlayerSelectScreen:
                   fonts, FONT_L, COLOR_CYAN, center=True)
 
         # 说明
-        draw_panel(screen, 120, 460, SCREEN_WIDTH - 240, 110, alpha=200)
+        draw_glass_panel(screen, 120, 460, SCREEN_WIDTH - 240, 110, alpha=200)
         draw_text(screen, "玩家 1:  WASD 移动 + 空格 射击",
                   160, 490, fonts, FONT_M, COLOR_GREEN)
         draw_text(screen, "玩家 2:  鼠标移动控制方向+位置，左键射击",
@@ -1081,7 +1107,7 @@ class TwoPlayScreen:
         p1_fire = keys[pygame.K_SPACE] or keys[pygame.K_j]
 
         # ---- 玩家 2 输入（鼠标控制）----
-        mouse_pos = pygame.mouse.get_pos()
+        mouse_pos = self.game.map_mouse(pygame.mouse.get_pos())
         mouse_buttons = pygame.mouse.get_pressed()
         p2_fire = mouse_buttons[0]
 
@@ -1248,7 +1274,7 @@ class TwoPlayScreen:
 
         pw, ph = 500, 320
         px, py = (SCREEN_WIDTH - pw) // 2, (SCREEN_HEIGHT - ph) // 2
-        draw_panel(screen, px, py, pw, ph, alpha=245)
+        draw_glass_panel(screen, px, py, pw, ph, alpha=245)
 
         if mode == "coop":
             if result == TwoPlayerGameWorld.RESULT_WIN:
@@ -1451,7 +1477,7 @@ class GarageScreen:
         selected_info = TANK_DATA[selected_name]
         selected_unlocked = selected_name in save.get("unlocked_tanks", [])
         panel_x, panel_y, panel_w, panel_h = 80, 420, SCREEN_WIDTH - 160, 100
-        draw_panel(screen, panel_x, panel_y, panel_w, panel_h, alpha=220)
+        draw_glass_panel(screen, panel_x, panel_y, panel_w, panel_h, alpha=220)
         draw_text(screen, f"{selected_name} - 详细属性",
                   panel_x + 25, panel_y + 15, fonts, FONT_M,
                   selected_info["color"] if selected_unlocked else COLOR_GRAY)
