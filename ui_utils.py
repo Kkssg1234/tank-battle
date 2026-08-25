@@ -37,43 +37,55 @@ class Button:
         return False
 
     def draw(self, screen, fonts):
-        """绘制按钮（设计系统升级版：硬阴影 + 顶部高光 + hover 抬升 + 发光描边）"""
+        """绘制按钮（暗色钢铁科技风：圆角主体 + 顶部内阴影 + hover 外发光 + 文字提亮）"""
         r = self.rect
-        # hover 时整体上移（仅视觉，不影响 self.rect 点击区）
-        lift = 0 if self.disabled else (UI_BTN_LIFT if self.hovered else 0)
 
+        # 禁用态：主体色再降 20%（RGB 各分量 ×0.8），文字变暗，不发光
         if self.disabled:
-            bg_color = self.disabled_color
-            border_color = (60, 60, 75)
-        elif self.hovered:
-            bg_color = self.hover_color
-            border_color = (150, 195, 255)
+            bg_color = tuple(max(0, int(c * 0.8)) for c in self.disabled_color[:3])
+            border_color = tuple(max(0, int(c * 0.8)) for c in COLOR_BTN_BORDER[:3])
+            text_color = (110, 110, 115)
+            body = r                              # 禁用不抬升
+            glow = False
+            text_lift = 0
         else:
-            bg_color = self.color
-            border_color = self.border_color
+            # hover 时整体上移 1px（仅视觉，不影响点击区）
+            lift = 1 if self.hovered else 0
+            bg_color = self.hover_color if self.hovered else self.color
+            border_color = COLOR_BTN_BORDER
+            text_color = COLOR_GOLD if self.hovered else COLOR_WHITE
+            body = r.move(0, -lift)
+            glow = self.hovered
+            text_lift = lift
 
-        # 1) 底部硬阴影（hover 时加深，制造抬升感）
-        if not self.disabled:
-            sh_alpha = UI_SHADOW_ALPHA + (50 if self.hovered else 0)
-            sh = pygame.Surface((r.width, r.height), pygame.SRCALPHA)
-            pygame.draw.rect(sh, (0, 0, 0, sh_alpha), sh.get_rect(), border_radius=UI_RADIUS_MD)
-            screen.blit(sh, (r.x, r.y + 4))
+        # 1) hover 外发光：2-3 层逐渐放大的圆角矩形，alpha 递减（COLOR_GLOW 基础色）
+        if glow:
+            ga = COLOR_GLOW[3]
+            for i, (pad, alpha) in enumerate([(0, ga), (5, max(0, ga - 10)), (10, max(0, ga - 20))]):
+                g_surf = pygame.Surface((r.width + pad * 2, r.height + pad * 2), pygame.SRCALPHA)
+                pygame.draw.rect(
+                    g_surf,
+                    (COLOR_GLOW[0], COLOR_GLOW[1], COLOR_GLOW[2], alpha),
+                    g_surf.get_rect(),
+                    border_radius=UI_RADIUS_MD + pad,
+                )
+                screen.blit(g_surf, (r.x - pad, r.y - pad))
 
-        # 2) 按钮主体（hover 上移）
-        body = r.move(0, -lift)
-        pygame.draw.rect(screen, bg_color, body, border_radius=UI_RADIUS_MD)
-        # 3) 顶部高光条（半透明白，制造立体光泽）
-        hi_rect = pygame.Rect(body.x + 4, body.y + 3, body.width - 8, max(3, body.height // 4))
-        hi_surf = pygame.Surface((hi_rect.width, hi_rect.height), pygame.SRCALPHA)
-        pygame.draw.rect(hi_surf, (255, 255, 255, 40), hi_surf.get_rect(),
-                         border_radius=UI_RADIUS_SM)
-        screen.blit(hi_surf, hi_rect.topleft)
-        # 4) 描边
-        pygame.draw.rect(screen, border_color, body, width=2, border_radius=UI_RADIUS_MD)
-        # 5) 文字
+        # 2) 按钮主体（圆角半径 10）
+        pygame.draw.rect(screen, bg_color, body, border_radius=10)
+
+        # 3) 内阴影：按钮内部上方画一条 2px 半透明白线，模拟凸起感
+        inner_hi = pygame.Surface((body.width - 6, 2), pygame.SRCALPHA)
+        inner_hi.fill((255, 255, 255, 40))
+        screen.blit(inner_hi, (body.x + 3, body.y + 2))
+
+        # 4) 描边（白钢边框）
+        pygame.draw.rect(screen, border_color, body, width=2, border_radius=10)
+
+        # 5) 文字（hover 时颜色已变为金、且随按钮上移 1px）
         font = fonts.get(self.font_size, fonts[FONT_M])
-        text_surf = font.render(self.text, True, self.text_color)
-        text_rect = text_surf.get_rect(center=body.center)
+        text_surf = font.render(self.text, True, text_color)
+        text_rect = text_surf.get_rect(centerx=body.centerx, centery=body.centery - text_lift)
         screen.blit(text_surf, text_rect)
 
 
@@ -104,14 +116,14 @@ _BG_CACHE = None
 
 
 def draw_bg(screen):
-    """绘制深蓝色科技风背景（设计系统升级版：垂直渐变 + 顶部光带 + 角落辉光）。
+    """绘制暗色钢铁科技风背景（垂直渐变 + 顶部光带 + 角落辉光）。
     背景为静态内容，预烘焙到 _BG_CACHE，每帧只做一次 blit，避免逐帧重绘数百条线。"""
     global _BG_CACHE
     if _BG_CACHE is None:
         surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        # 1) 垂直渐变底色（上深下稍亮，营造纵深）
-        top = UI_BG_DEEP
-        bot = (16, 30, 66)
+        # 1) 垂直渐变底色（上深黑、下略带暖灰，营造钢铁纵深）
+        top = UI_BG_DEEP                       # (18,18,22)
+        bot = (26, 26, 30)
         for y in range(SCREEN_HEIGHT):
             t = y / SCREEN_HEIGHT
             c = (int(top[0] + (bot[0] - top[0]) * t),
@@ -119,20 +131,20 @@ def draw_bg(screen):
                  int(top[2] + (bot[2] - top[2]) * t))
             pygame.draw.line(surf, c, (0, y), (SCREEN_WIDTH, y))
 
-        # 2) 顶部光带（一条更亮的横向高光，强化视觉焦点）
+        # 2) 顶部光带（极淡冰蓝高光，强化视觉焦点，不抢主体）
         band = pygame.Surface((SCREEN_WIDTH, 6), pygame.SRCALPHA)
-        band.fill((COLOR_CYAN[0], COLOR_CYAN[1], COLOR_CYAN[2], 30))
+        band.fill((COLOR_CYAN[0], COLOR_CYAN[1], COLOR_CYAN[2], 22))
         surf.blit(band, (0, 0))
 
-        # 3) 网格线（更淡，不抢主体）
+        # 3) 网格线（极淡钢灰，几乎不可见，呼应金属面板）
         grid_size = 40
-        grid_col = (14, 26, 56)
+        grid_col = (30, 30, 35)
         for x in range(0, SCREEN_WIDTH, grid_size):
             pygame.draw.line(surf, grid_col, (x, 0), (x, SCREEN_HEIGHT), 1)
         for y in range(0, SCREEN_HEIGHT, grid_size):
             pygame.draw.line(surf, grid_col, (0, y), (SCREEN_WIDTH, y), 1)
 
-        # 4) 装饰性边框光点（保留原有点阵，呼应科技风）
+        # 4) 装饰性边框光点（冰蓝点阵，呼应科技风，降低亮度避免浮夸）
         for i in range(0, SCREEN_WIDTH, 80):
             pygame.draw.circle(surf, COLOR_CYAN, (i, 8), 2)
             pygame.draw.circle(surf, COLOR_CYAN, (i, SCREEN_HEIGHT - 9), 2)
@@ -272,6 +284,29 @@ def draw_panel(screen, x, y, width, height, alpha=220):
     # 4) 描边
     pygame.draw.rect(screen, UI_CARD_BORDER, (x, y, width, height),
                      width=2, border_radius=UI_RADIUS_LG)
+
+
+def draw_glass_panel(screen, x, y, w, h, alpha=200):
+    """绘制玻璃拟态面板（暗色钢铁风）：圆角半透明底色 + 顶部高光 + 底部暗边 + 1px 细描边。"""
+    # 1) 圆角矩形底色（RGBA，使用 COLOR_PANEL_BG 的 RGB 与传入 alpha）
+    base = COLOR_PANEL_BG
+    body_surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    body_surf.fill((base[0], base[1], base[2], alpha))
+    screen.blit(body_surf, (x, y))
+
+    # 2) 顶部 1px 高光白线
+    hi = pygame.Surface((w - 2, 1), pygame.SRCALPHA)
+    hi.fill((255, 255, 255, 60))
+    screen.blit(hi, (x + 1, y))
+
+    # 3) 底部 1px 暗边
+    dark = pygame.Surface((w - 2, 1), pygame.SRCALPHA)
+    dark.fill((0, 0, 0, 80))
+    screen.blit(dark, (x + 1, y + h - 1))
+
+    # 4) 外框 1px 细线（白钢边框）
+    pygame.draw.rect(screen, COLOR_BTN_BORDER, (x, y, w, h),
+                     width=1, border_radius=UI_RADIUS_MD)
 
 
 def draw_tank_icon(screen, x, y, color, size=48, unlocked=True):

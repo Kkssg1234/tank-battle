@@ -9,9 +9,9 @@ FPS = 60
 TITLE = "坦克大战 - 浪尖儿大学生社区"
 
 # ===== 颜色定义 =====
-COLOR_BG = (8, 16, 40)               # 深蓝色科技风背景
-COLOR_BG_GRID = (15, 30, 65)         # 背景网格线
-COLOR_MENU_BG = (5, 12, 35)
+COLOR_BG = (18, 18, 22)              # 深炭黑，接近纯黑但带一点暖灰
+COLOR_BG_GRID = (30, 30, 35)         # 极淡网格，几乎不可见
+COLOR_MENU_BG = (12, 12, 16)
 COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)
 COLOR_GRAY = (120, 120, 120)
@@ -22,31 +22,36 @@ COLOR_GREEN = (80, 220, 100)
 COLOR_BLUE = (70, 140, 255)
 COLOR_YELLOW = (255, 210, 60)
 COLOR_ORANGE = (255, 150, 50)
-COLOR_CYAN = (80, 220, 255)
+COLOR_CYAN = (160, 220, 240)         # 冰蓝，降低饱和度
 COLOR_PURPLE = (200, 120, 255)
 COLOR_PINK = (255, 120, 180)
-COLOR_GOLD = (255, 200, 50)
+COLOR_GOLD = (255, 170, 60)          # 偏橙金，更有金属感
 
 # 按钮颜色
-COLOR_BTN = (40, 70, 140)
-COLOR_BTN_HOVER = (70, 110, 200)
-COLOR_BTN_DISABLED = (40, 40, 55)
-COLOR_BTN_BORDER = (100, 150, 230)
+COLOR_BTN = (45, 45, 50)              # 深灰按钮底
+COLOR_BTN_HOVER = (80, 80, 90)        # 悬停时偏银灰
+COLOR_BTN_DISABLED = (35, 35, 38)
+COLOR_BTN_BORDER = (200, 200, 210)    # 白钢边框
+
+# 发光 / 面板 / 强调（2026-08-25 暗色钢铁科技风）
+COLOR_GLOW = (255, 255, 255, 30)      # 按钮外发光基础色（带 alpha）
+COLOR_PANEL_BG = (25, 25, 28, 220)    # 面板底色（RGBA）
+COLOR_ACCENT = (255, 90, 60)          # 强调色（橙红，危险/友军伤害警告）
 
 # ===== UI 设计系统 Token（2026-08-23 美术优化）=====
 # 语义表面层：深蓝科技风的层次化背景（由深到浅，营造纵深）
-UI_BG_DEEP = (8, 16, 40)            # 最深层底色（= COLOR_BG 语义别名）
-UI_SURFACE = (20, 34, 74)           # 表面层（面板/底栏底色）
-UI_CARD = (28, 46, 92)              # 卡片层（浮起元素底色）
-UI_CARD_HI = (44, 70, 128)          # 卡片顶部高光（提亮 1 档，制造立体）
-UI_CARD_BORDER = (60, 92, 150)      # 卡片描边（柔和）
-UI_CARD_BORDER_HI = (110, 160, 230) # 卡片选中/强调描边
+UI_BG_DEEP = (18, 18, 22)           # 最深层底色（= COLOR_BG 语义别名）
+UI_SURFACE = (22, 22, 26)           # 表面层（面板/底栏底色）
+UI_CARD = (30, 30, 34)              # 卡片层（深钢灰浮起元素底色）
+UI_CARD_HI = (48, 48, 54)           # 卡片顶部高光（提亮 1 档，制造立体）
+UI_CARD_BORDER = (80, 80, 90)       # 卡片描边（钢灰）
+UI_CARD_BORDER_HI = (160, 220, 240) # 卡片选中/强调描边（冰蓝）
 
 # 强调色（语义别名，便于统一引用）
-UI_ACCENT = (255, 200, 50)          # 主强调金（标题/选中/进度）
-UI_ACCENT_CYAN = (80, 220, 255)     # 高亮青（副标题/链接/信息）
-UI_ACCENT_BTN = (70, 140, 255)      # 按钮蓝（主操作）
-UI_ACCENT_BTN_HI = (110, 170, 255)  # 按钮 hover 提亮
+UI_ACCENT = (255, 170, 60)          # 主强调金（标题/选中/进度）
+UI_ACCENT_CYAN = (160, 220, 240)    # 高亮青（副标题/链接/信息）
+UI_ACCENT_BTN = (80, 80, 90)        # 按钮底（深钢灰）
+UI_ACCENT_BTN_HI = (120, 120, 132)  # 按钮 hover 提亮（银灰）
 
 # 阴影 / 发光
 UI_SHADOW = (0, 0, 0)               # 硬阴影色
