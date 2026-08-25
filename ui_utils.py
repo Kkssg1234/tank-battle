@@ -114,12 +114,22 @@ def draw_text(screen, text, x, y, fonts, font_size=FONT_M, color=COLOR_WHITE,
 # 背景缓存：每帧重复绘制 640+ 条线代价很高（wasm 浏览器尤其明显），
 # 预烘焙一次后每帧仅一次 blit。
 _BG_CACHE = None
+# 四角暗角（黑色渐变三角形，alpha 0→60）与网格呼吸动画图层的缓存
+_CORNER_VIGNETTE = None
+_GRID_OVERLAY = None
 
 
 def draw_bg(screen):
-    """绘制暗色钢铁科技风背景（垂直渐变 + 顶部光带 + 角落辉光）。
-    背景为静态内容，预烘焙到 _BG_CACHE，每帧只做一次 blit，避免逐帧重绘数百条线。"""
-    global _BG_CACHE
+    """绘制暗色钢铁科技风背景。
+
+    背景由三部分组成：
+      1) 静态渐变 + 顶部光带 + 边框光点 —— 预烘焙到 _BG_CACHE，每帧只做一次 blit；
+      2) 网格线（呼吸动画）—— alpha 随时间轻微波动（40 + 10*sin(time + x/100)），
+         像呼吸的电路板；逐帧重绘但仅 ~40 条线，开销极低，绘制在复用 SRCALPHA 图层上；
+      3) 四角暗角 —— 4 个巨大黑色渐变三角形（alpha 0→60），模拟镜头暗角，聚焦中央，
+         预烘焙到 _CORNER_VIGNETTE，每帧一次 blit。
+    """
+    global _BG_CACHE, _CORNER_VIGNETTE, _GRID_OVERLAY
     if _BG_CACHE is None:
         surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         # 1) 垂直渐变底色（上深黑、下略带暖灰，营造钢铁纵深）
@@ -137,15 +147,7 @@ def draw_bg(screen):
         band.fill((COLOR_CYAN[0], COLOR_CYAN[1], COLOR_CYAN[2], 22))
         surf.blit(band, (0, 0))
 
-        # 3) 网格线（极淡钢灰，几乎不可见，呼应金属面板）
-        grid_size = 40
-        grid_col = (22, 36, 58)               # 极淡钢蓝网格
-        for x in range(0, SCREEN_WIDTH, grid_size):
-            pygame.draw.line(surf, grid_col, (x, 0), (x, SCREEN_HEIGHT), 1)
-        for y in range(0, SCREEN_HEIGHT, grid_size):
-            pygame.draw.line(surf, grid_col, (0, y), (SCREEN_WIDTH, y), 1)
-
-        # 4) 装饰性边框光点（冰蓝点阵，呼应科技风，降低亮度避免浮夸）
+        # 3) 装饰性边框光点（冰蓝点阵，呼应科技风，降低亮度避免浮夸）
         for i in range(0, SCREEN_WIDTH, 80):
             pygame.draw.circle(surf, COLOR_CYAN, (i, 8), 2)
             pygame.draw.circle(surf, COLOR_CYAN, (i, SCREEN_HEIGHT - 9), 2)
@@ -154,7 +156,53 @@ def draw_bg(screen):
             pygame.draw.circle(surf, COLOR_CYAN, (SCREEN_WIDTH - 9, i), 2)
 
         _BG_CACHE = surf
+
+    # 基础静态层
     screen.blit(_BG_CACHE, (0, 0))
+
+    # 4) 网格呼吸动画（alpha 随时间波动，像呼吸的电路板；复用 SRCALPHA 图层，零每帧分配）
+    t = pygame.time.get_ticks() / 1000.0
+    if _GRID_OVERLAY is None:
+        _GRID_OVERLAY = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    _GRID_OVERLAY.fill((0, 0, 0, 0))
+    grid_size = 40
+    grid_base = (22, 36, 58)
+    for x in range(0, SCREEN_WIDTH + 1, grid_size):
+        a = 40 + int(10 * math.sin(t + x / 100.0))
+        a = max(0, min(80, a))
+        pygame.draw.line(_GRID_OVERLAY, (grid_base[0], grid_base[1], grid_base[2], a),
+                         (x, 0), (x, SCREEN_HEIGHT), 1)
+    for y in range(0, SCREEN_HEIGHT + 1, grid_size):
+        a = 40 + int(10 * math.sin(t + y / 100.0))
+        a = max(0, min(80, a))
+        pygame.draw.line(_GRID_OVERLAY, (grid_base[0], grid_base[1], grid_base[2], a),
+                         (0, y), (SCREEN_WIDTH, y), 1)
+    screen.blit(_GRID_OVERLAY, (0, 0))
+
+    # 5) 四角暗角（4 个巨大黑色渐变三角形，alpha 0→60，聚焦中央）
+    if _CORNER_VIGNETTE is None:
+        _CORNER_VIGNETTE = _bake_corner_vignette(SCREEN_WIDTH, SCREEN_HEIGHT)
+    screen.blit(_CORNER_VIGNETTE, (0, 0))
+
+
+def _bake_corner_vignette(w, h):
+    """预烘焙四角暗角：每个角一个直角三角形（顶角在画面角），
+    由远及近分层叠加，使角点最暗（alpha≈60）、向中心渐隐到 0。"""
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    reach = 300
+    layers = 32
+    corners = [(0, 0), (w, 0), (0, h), (w, h)]
+    for (cx, cy) in corners:
+        sx = 1 if cx == 0 else -1
+        sy = 1 if cy == 0 else -1
+        for k in range(1, layers + 1):
+            p = k / layers
+            d = reach * p
+            a = max(1, int(3 * (1.0 - p) + 0.5))   # 角点最暗，向外趋 0
+            pygame.draw.polygon(
+                surf, (0, 0, 0, a),
+                [(cx, cy), (cx + sx * d, cy), (cx, cy + sy * d)])
+    return surf
 
 
 def draw_corner_logo(screen, fonts):

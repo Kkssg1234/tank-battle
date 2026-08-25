@@ -90,6 +90,8 @@ class Game:
         self.running = True
         self.state = STATE_MENU
         self.prev_state = None
+        # 界面切换黑屏淡入过渡（剩余秒数；>0 时在每帧最后叠加一层渐隐黑幕）
+        self.transition = 0.0
 
         # 游戏上下文数据
         self.current_level = 1       # 单人当前关卡
@@ -121,6 +123,8 @@ class Game:
         screen = self.screens.get(new_state)
         if screen and hasattr(screen, "enter"):
             screen.enter()
+        # 触发 0.15s 黑屏淡入过渡（新界面从黑幕中淡现）
+        self.transition = 0.15
 
     def _compute_fit(self):
         """计算离屏画布 → 显示分辨率的等比适配矩形（letterbox 居中）。"""
@@ -289,6 +293,13 @@ class Game:
             # UI 悬停粒子（按钮火花）每帧更新并绘制到画布
             update_ui_particles(dt)
             draw_ui_particles(self.screen)
+            # 界面切换黑屏淡入过渡：从黑幕中淡现新界面（约 0.15s）
+            if self.transition > 0:
+                self.transition = max(0.0, self.transition - dt)
+                _fa = int(200 * (self.transition / 0.15))
+                _fade = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+                _fade.fill((0, 0, 0, _fa))
+                self.screen.blit(_fade, (0, 0))
             self._present()
         pygame.quit()
         sys.exit(0)
@@ -311,6 +322,13 @@ class Game:
             # UI 悬停粒子（按钮火花）每帧更新并绘制到画布
             update_ui_particles(dt)
             draw_ui_particles(self.screen)
+            # 界面切换黑屏淡入过渡：从黑幕中淡现新界面（约 0.15s）
+            if self.transition > 0:
+                self.transition = max(0.0, self.transition - dt)
+                _fa = int(200 * (self.transition / 0.15))
+                _fade = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+                _fade.fill((0, 0, 0, _fa))
+                self.screen.blit(_fade, (0, 0))
             self._present()
             await asyncio.sleep(0)  # 让出控制权给事件循环，pygbag 必需
 

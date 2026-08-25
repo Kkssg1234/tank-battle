@@ -491,8 +491,8 @@ class ResultScreen:
         for _i, (_lbl, _val, _vc) in enumerate(_cards):
             _cxi = _csx + _i * (_cw + _cgap)
             draw_glass_panel(screen, _cxi, _cyy, _cw, _ch, alpha=210)
-            draw_text(screen, _val, _cxi + _cw // 2, _cyy + 24,
-                      fonts, FONT_XL, _vc, center=True)
+            draw_text(screen, _val, _cxi + _cw // 2, _cyy + 22,
+                      fonts, FONT_L, _vc, center=True)
             draw_text(screen, _lbl, _cxi + _cw // 2, _cyy + 52,
                       fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
 
@@ -501,7 +501,7 @@ class ResultScreen:
             "S": COLOR_GOLD, "A": COLOR_GREEN,
             "B": COLOR_CYAN, "C": COLOR_LIGHT_GRAY,
         }[self.grade]
-        draw_text(screen, f"评价 {self.grade}", cx, py + 218,
+        draw_text(screen, f"评价 {self.grade}", cx, py + 226,
                   fonts, FONT_XL, grade_col, center=True)
 
         # 5) 新装备解锁金色横幅（左右滑入动画）
@@ -1337,7 +1337,7 @@ class TwoPlayScreen:
                 title, col = "玩家 1 获胜！", COLOR_GREEN
                 sub = "玩家 2 被击毁"
             elif result == TwoPlayerGameWorld.RESULT_P2_WIN:
-                title, col = "玩家 2 获胜！", COLOR_BLUE
+                title, col = "玩家 2 获胜！", COLOR_CYAN
                 sub = "玩家 1 被击毁"
             else:
                 title, col = "双败", COLOR_RED
