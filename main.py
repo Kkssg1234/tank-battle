@@ -185,6 +185,33 @@ class Game:
             self.use_offscreen = False
         self._compute_fit()
 
+    def toggle_web_fullscreen(self):
+        """网页端：通过浏览器 Fullscreen API 进入/退出全屏（需用户手势触发）。
+        仅在 _IN_BROWSER 下生效；其余平台直接忽略。"""
+        if not _IN_BROWSER:
+            return
+        try:
+            doc = platform.window.document
+            if getattr(doc, "fullscreenElement", None):
+                if doc.exitFullscreen:
+                    doc.exitFullscreen()
+            else:
+                el = doc.documentElement
+                if el and el.requestFullscreen:
+                    el.requestFullscreen()
+        except Exception:
+            # 部分浏览器要求 requestFullscreen 必须在同步用户手势内调用，
+            # 若被异步事件拦截而失败，用户仍可用浏览器自带全屏（F11 / 控件）。
+            pass
+
+    def toggle_fullscreen_mode(self):
+        """统一全屏切换入口：网页端走 Fullscreen API，桌面端走离屏 letterbox。
+        供界面「全屏」按钮调用。"""
+        if _IN_BROWSER:
+            self.toggle_web_fullscreen()
+        else:
+            self.toggle_fullscreen()
+
     def run(self):
         """主循环（本地同步版）。"""
         # 确保存档文件存在（首次运行自动生成 save.json）
@@ -217,7 +244,8 @@ class Game:
         # 全局快捷键
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_F11:
-                self.toggle_fullscreen()
+                # 统一入口：网页端走 Fullscreen API，桌面端走离屏 letterbox
+                self.toggle_fullscreen_mode()
                 return
             mods = pygame.key.get_mods()
             if mods & pygame.KMOD_CTRL and event.key == pygame.K_q:

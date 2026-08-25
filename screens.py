@@ -83,6 +83,9 @@ class MenuScreen:
                                        "下载存档到本地", FONT_M)
         else:
             self.download_btn = None
+        # 全屏切换按钮（桌面离屏 letterbox / 网页 Fullscreen API 统一入口）
+        self.fullscreen_btn = Button(SCREEN_WIDTH - 104, 16, 92, 32,
+                                     "全屏", FONT_S)
 
     def enter(self):
         self._build_buttons()
@@ -105,6 +108,10 @@ class MenuScreen:
             self.toast = ("存档已下载：tank-battle-save.json"
                          if ok else "当前环境不支持下载")
             self.toast_timer = 3.0
+            return
+        # 全屏切换（桌面/网页端统一入口）
+        if self.fullscreen_btn is not None and self.fullscreen_btn.handle_event(event):
+            self.game.toggle_fullscreen_mode()
             return
 
     def update(self, dt):
@@ -227,6 +234,10 @@ class MenuScreen:
             self.download_btn.draw(screen, fonts)
             draw_text(screen, "网页版专属：将游戏进度保存为文件下载到本机",
                       SCREEN_WIDTH // 2, 602, fonts, FONT_XS, COLOR_LIGHT_GRAY, center=True)
+
+        # 全屏切换按钮（右上角，桌面/网页端统一入口）
+        if self.fullscreen_btn is not None:
+            self.fullscreen_btn.draw(screen, fonts)
 
         # 下载结果提示气泡（顶部居中，3 秒后自动消失）
         if self.toast:

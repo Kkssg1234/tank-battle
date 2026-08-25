@@ -107,6 +107,54 @@ def patch(path: str) -> None:
             1,
         )
 
+    # 11) 网页端清晰度核心：给画布加最近邻缩放，避免浏览器把 960x640 后备缓冲
+    #     双线性拉伸到视口导致模糊（image-rendering 不影响鼠标坐标映射）。
+    #     保留 width/height:100% 作为 JS 未生效时的兜底（此时等同旧行为）。
+    s = s.replace(
+        "background-color: transparent;\n            width: 100%;\n"
+        "            height: 100%;\n            z-index: 5;",
+        "background-color: transparent;\n"
+        "            image-rendering: pixelated;\n"
+        "            image-rendering: -moz-crisp-edges;\n"
+        "            image-rendering: crisp-edges;\n"
+        "            width: 100%;\n"
+        "            height: 100%;\n"
+        "            z-index: 5;",
+        1,
+    )
+
+    # 12) 注入 fitCanvas：按 3:2 等比 letterbox 设置画布「显示尺寸」并居中，
+    #     位图仍正好填满元素（鼠标映射不变），消除非 3:2 视口下的拉伸变形。
+    if "fitCanvas" not in s:
+        s = s.replace(
+            "</body>",
+            '    <script>\n'
+            '    // 网页端清晰度：按 3:2 等比 letterbox 设置画布显示尺寸（居中、不变形），\n'
+            '    // 配合 canvas 的 image-rendering:pixelated 实现最近邻锐利缩放。\n'
+            '    (function(){\n'
+            '      function fitCanvas(){\n'
+            '        var c = document.getElementById("canvas");\n'
+            '        if(!c) return;\n'
+            '        var vw = window.innerWidth || document.documentElement.clientWidth;\n'
+            '        var vh = window.innerHeight || document.documentElement.clientHeight;\n'
+            '        if(!vw || !vh) return;\n'
+            '        var ar = 3/2;            // 游戏逻辑分辨率 960x640 = 3:2\n'
+            '        var w = vw, h = vw / ar;\n'
+            '        if(h > vh){ h = vh; w = vh * ar; }\n'
+            '        c.style.width = Math.round(w) + "px";\n'
+            '        c.style.height = Math.round(h) + "px";\n'
+            '      }\n'
+            '      window.addEventListener("resize", fitCanvas);\n'
+            '      window.addEventListener("load", fitCanvas);\n'
+            '      document.addEventListener("fullscreenchange", fitCanvas);\n'
+            '      if(document.readyState === "complete" || document.readyState === "interactive"){\n'
+            '        fitCanvas();\n'
+            '      } else { window.addEventListener("DOMContentLoaded", fitCanvas); }\n'
+            '    })();\n'
+            '    </script>\n</body>',
+            1,
+        )
+
     if s == orig:
         print("WARNING: index.html 未发生变化，请检查 pygbag 模板版本")
     else:
