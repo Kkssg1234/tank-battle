@@ -139,63 +139,42 @@ class MenuScreen:
             pygame.draw.line(screen, _bk, (_ox, _oy), (_ox + _dx * _L, _oy), _t)
             pygame.draw.line(screen, _bk, (_ox, _oy), (_ox, _oy + _dy * _L), _t)
 
-        # ---------- 背景装饰：固定的极淡十字准星（固定种子，不逐帧抖动）----------
-        _rng = random.Random(20260825)
-        for _ in range(4):
-            gx = _rng.randint(40, SCREEN_WIDTH - 40)
-            gy = _rng.randint(40, SCREEN_HEIGHT - 40)
-            gl = 7
-            pygame.draw.line(screen, (40, 40, 45), (gx - gl, gy), (gx + gl, gy), 2)
-            pygame.draw.line(screen, (40, 40, 45), (gx, gy - gl), (gx, gy + gl), 2)
+        # ---------- 背景装饰：四角钢蓝序号编号（01-04，克制科技感，无扫描线）----------
+        _corner_nums = [
+            ("01", 24, 24, False, False),
+            ("02", SCREEN_WIDTH - 24, 24, True, False),
+            ("03", 24, SCREEN_HEIGHT - 24, False, True),
+            ("04", SCREEN_WIDTH - 24, SCREEN_HEIGHT - 24, True, True),
+        ]
+        for _num, _nx, _ny, _right, _bottom in _corner_nums:
+            _sx = (SCREEN_WIDTH - 24 - fonts[FONT_XS].size(_num)[0]) if _right else _nx
+            _sy = (SCREEN_HEIGHT - 40) if _bottom else _ny
+            draw_text(screen, _num, _sx, _sy, fonts, FONT_XS, COLOR_CYAN)
 
-        # 标题 - 浮动 + 呼吸灯辉光（alpha 随时间正弦波动）
-        title_y = 92 + math.sin(self.time * 2) * 4
-        # 标题背后金色聚光（径向辉光，营造舞台光感；纯缓存辉光，零每帧分配）
-        draw_glow(screen, cx, title_y, 280, COLOR_GOLD, alpha=30)
+        # 标题 - 静态（极轻微浮动，去掉呼吸明灭，更克制高级）
+        title_y = 92 + int(math.sin(self.time * 1.5) * 3)
+        # 标题背后极淡钢蓝聚光（冷锻钢蓝，非霓虹）
+        draw_glow(screen, cx, title_y, 260, COLOR_CYAN, alpha=18)
         title_font = fonts.get(FONT_XXL, fonts[FONT_M])
         title_surf = title_font.render("坦 克 大 战", True, COLOR_GOLD)
-        breath = 0.85 + 0.15 * math.sin(self.time * 3)   # 0.70 ~ 1.00
-        # 呼吸辉光：四方向偏移的半透明副本（透明度随呼吸同步）
-        glow = title_surf.copy()
-        glow.set_alpha(int(90 * breath))
-        for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
-            screen.blit(glow, glow.get_rect(center=(cx + dx, title_y + dy)))
-        # 实色标题（呼吸明暗）
-        title_surf.set_alpha(int(255 * breath))
         screen.blit(title_surf, title_surf.get_rect(center=(cx, title_y)))
+        # 标题下方 1px 琥珀压线（强调，去呼吸）
+        _uwy = title_y + 50
+        pygame.draw.line(screen, COLOR_AMBER, (cx - 150, _uwy), (cx + 150, _uwy), 1)
 
-        # 金色扫描线：标题宽度内往复扫描（廉价：仅一条 line）
-        tline = title_surf.get_rect(center=(cx, title_y))
-        scan_x = int((self.time * 200) % tline.width)
-        scan_y = title_y + 40
-        pygame.draw.line(screen, COLOR_GOLD,
-                         (tline.left, scan_y), (tline.left + scan_x, scan_y), 2)
-
-        # 副标题 TANK BATTLE + 两侧矢量 ◆ 菱形（COLOR_CYAN）
+        # 副标题 TANK BATTLE + 两侧钢蓝短横线（去 ◆ 菱形，更克制）
         sub_y = title_y + 70
         sub_font = fonts.get(FONT_L, fonts[FONT_M])
         sub_surf = sub_font.render("TANK BATTLE", True, COLOR_CYAN)
         sub_w = sub_surf.get_width()
         sub_rect = sub_surf.get_rect(center=(cx, sub_y))
         screen.blit(sub_surf, sub_rect)
-        diamond_s = 12
-        d_off = 18
-        for dx in (-(sub_w // 2 + d_off + diamond_s // 2), (sub_w // 2 + d_off + diamond_s // 2)):
-            dcx = cx + dx
-            dcy = sub_y
-            pygame.draw.polygon(screen, COLOR_CYAN, [
-                (dcx, dcy - diamond_s // 2),
-                (dcx + diamond_s // 2, dcy),
-                (dcx, dcy + diamond_s // 2),
-                (dcx - diamond_s // 2, dcy),
-            ])
+        for dx in (-(sub_w // 2 + 14), (sub_w // 2 + 14)):
+            pygame.draw.line(screen, COLOR_CYAN, (cx + dx - 16, sub_y), (cx + dx + 16, sub_y), 1)
 
-        # 副标题下方呼吸青色装饰线（呼应扫描线主题，亮度随呼吸起伏）
-        _pulse = 0.5 + 0.5 * math.sin(self.time * 2.5)
-        _lw = sub_w // 2 + 24
+        # 副标题下方静态钢蓝细装饰线
         _ly = sub_y + 30
-        _line_col = (int(110 + 90 * _pulse), int(200 + 40 * _pulse), int(220 + 30 * _pulse))
-        pygame.draw.line(screen, _line_col, (cx - _lw, _ly), (cx + _lw, _ly), 2)
+        pygame.draw.line(screen, COLOR_CYAN, (cx - sub_w // 2 - 24, _ly), (cx + sub_w // 2 + 24, _ly), 1)
 
         draw_text(screen, "浪尖儿大学生社区 · 竞赛附加题", SCREEN_WIDTH // 2, title_y + 112,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
@@ -248,7 +227,7 @@ class MenuScreen:
         foot_y = SCREEN_HEIGHT - 40
         pygame.draw.line(screen, (50, 50, 55), (cx - 100, foot_y), (cx + 100, foot_y), 1)
         draw_text(screen, "BUILD 2026.08 · COMPETITION EDITION", 20, SCREEN_HEIGHT - 30,
-                  fonts, FONT_XS, COLOR_GRAY)
+                  fonts, FONT_XS, COLOR_CYAN)
         draw_corner_logo(screen, fonts)
 
 
@@ -1412,6 +1391,13 @@ class GarageScreen:
             draw_tank_icon(screen, icon_x, icon_y, info["color"], size=icon_size,
                            unlocked=unlocked,
                            style=TANK_STYLE_BY_NAME.get(name, TANK_STYLE_STANDARD))
+
+            # 坦克代号徽章（钢蓝，等宽感，强化辨识；新增装饰，不动逻辑）
+            _codes = {"轻型侦察车": "SCOUT-01", "重装突击车": "HEAVY-02",
+                      "激光狙击车": "LASER-03", "KZY 终极战车": "KZY-Ω"}
+            _code = _codes.get(name, "")
+            if _code:
+                draw_text(screen, _code, x + w - 8, y + 8, fonts, FONT_XS, COLOR_CYAN, center_x=True)
 
             # 坦克名称
             name_color = info["color"] if unlocked else COLOR_GRAY

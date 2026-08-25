@@ -53,34 +53,30 @@ class Button:
             lift = 1 if self.hovered else 0
             bg_color = self.hover_color if self.hovered else self.color
             border_color = COLOR_BTN_BORDER
-            text_color = COLOR_GOLD if self.hovered else COLOR_WHITE
+            text_color = COLOR_AMBER if self.hovered else COLOR_WHITE
             body = r.move(0, -lift)
             glow = self.hovered
             text_lift = lift
 
-        # 1) hover 外发光：2-3 层逐渐放大的圆角矩形，alpha 递减（COLOR_GLOW 基础色）
+        # 1) hover 外描边：单层琥珀包围（去霓虹白光，仅强调描边）
         if glow:
-            ga = COLOR_GLOW[3]
-            for i, (pad, alpha) in enumerate([(0, ga), (5, max(0, ga - 10)), (10, max(0, ga - 20))]):
-                g_surf = pygame.Surface((r.width + pad * 2, r.height + pad * 2), pygame.SRCALPHA)
-                pygame.draw.rect(
-                    g_surf,
-                    (COLOR_GLOW[0], COLOR_GLOW[1], COLOR_GLOW[2], alpha),
-                    g_surf.get_rect(),
-                    border_radius=UI_RADIUS_MD + pad,
-                )
-                screen.blit(g_surf, (r.x - pad, r.y - pad))
+            pad = 2
+            g_surf = pygame.Surface((r.width + pad * 2, r.height + pad * 2), pygame.SRCALPHA)
+            pygame.draw.rect(g_surf, COLOR_AMBER, g_surf.get_rect(),
+                             width=1, border_radius=UI_RADIUS_MD + pad)
+            screen.blit(g_surf, (r.x - pad, r.y - pad))
 
-        # 2) 按钮主体（圆角半径 10）
-        pygame.draw.rect(screen, bg_color, body, border_radius=10)
+        # 2) 按钮主体（硬朗圆角）
+        pygame.draw.rect(screen, bg_color, body, border_radius=UI_RADIUS_MD)
 
-        # 3) 内阴影：按钮内部上方画一条 2px 半透明白线，模拟凸起感
+        # 3) 内高光：按钮内部上方画一条 2px 钢蓝半透明线，模拟凸起边缘
         inner_hi = pygame.Surface((body.width - 6, 2), pygame.SRCALPHA)
-        inner_hi.fill((255, 255, 255, 40))
+        inner_hi.fill((91, 127, 168, 36))
         screen.blit(inner_hi, (body.x + 3, body.y + 2))
 
-        # 4) 描边（白钢边框）
-        pygame.draw.rect(screen, border_color, body, width=2, border_radius=10)
+        # 4) 描边（hover 转琥珀，否则钢蓝边框）
+        pygame.draw.rect(screen, COLOR_AMBER if glow else border_color,
+                         body, width=2, border_radius=UI_RADIUS_MD)
 
         # 5) 文字（hover 时颜色已变为金、且随按钮上移 1px）
         font = fonts.get(self.font_size, fonts[FONT_M])
@@ -122,8 +118,8 @@ def draw_bg(screen):
     if _BG_CACHE is None:
         surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         # 1) 垂直渐变底色（上深黑、下略带暖灰，营造钢铁纵深）
-        top = UI_BG_DEEP                       # (18,18,22)
-        bot = (26, 26, 30)
+        top = UI_BG_DEEP                       # (11,18,32) 深海军蓝
+        bot = (16, 26, 46)                    # 底部略亮蓝，强化纵深
         for y in range(SCREEN_HEIGHT):
             t = y / SCREEN_HEIGHT
             c = (int(top[0] + (bot[0] - top[0]) * t),
@@ -138,7 +134,7 @@ def draw_bg(screen):
 
         # 3) 网格线（极淡钢灰，几乎不可见，呼应金属面板）
         grid_size = 40
-        grid_col = (30, 30, 35)
+        grid_col = (22, 36, 58)               # 极淡钢蓝网格
         for x in range(0, SCREEN_WIDTH, grid_size):
             pygame.draw.line(surf, grid_col, (x, 0), (x, SCREEN_HEIGHT), 1)
         for y in range(0, SCREEN_HEIGHT, grid_size):
@@ -279,7 +275,7 @@ def draw_panel(screen, x, y, width, height, alpha=220):
     screen.blit(panel_surf, (x, y))
     # 3) 顶部高光条
     hi = pygame.Surface((width - 8, max(3, height // 10)), pygame.SRCALPHA)
-    pygame.draw.rect(hi, (255, 255, 255, 22), hi.get_rect(), border_radius=UI_RADIUS_SM)
+    pygame.draw.rect(hi, (91, 127, 168, 22), hi.get_rect(), border_radius=UI_RADIUS_SM)
     screen.blit(hi, (x + 4, y + 3))
     # 4) 描边
     pygame.draw.rect(screen, UI_CARD_BORDER, (x, y, width, height),
@@ -294,9 +290,9 @@ def draw_glass_panel(screen, x, y, w, h, alpha=200):
     body_surf.fill((base[0], base[1], base[2], alpha))
     screen.blit(body_surf, (x, y))
 
-    # 2) 顶部 1px 高光白线
+    # 2) 顶部 1px 钢蓝高光线
     hi = pygame.Surface((w - 2, 1), pygame.SRCALPHA)
-    hi.fill((255, 255, 255, 60))
+    hi.fill((91, 127, 168, 50))
     screen.blit(hi, (x + 1, y))
 
     # 3) 底部 1px 暗边

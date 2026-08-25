@@ -9,9 +9,9 @@ FPS = 60
 TITLE = "坦克大战 - 浪尖儿大学生社区"
 
 # ===== 颜色定义 =====
-COLOR_BG = (18, 18, 22)              # 深炭黑，接近纯黑但带一点暖灰
-COLOR_BG_GRID = (30, 30, 35)         # 极淡网格，几乎不可见
-COLOR_MENU_BG = (12, 12, 16)
+COLOR_BG = (11, 18, 32)              # 深海军蓝（冷锻钢蓝，非纯黑，带蓝调）
+COLOR_BG_GRID = (22, 36, 58)         # 极淡钢蓝网格，几乎不可见
+COLOR_MENU_BG = (8, 14, 26)          # 菜单更深海军蓝
 COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)
 COLOR_GRAY = (120, 120, 120)
@@ -22,36 +22,37 @@ COLOR_GREEN = (80, 220, 100)
 COLOR_BLUE = (70, 140, 255)
 COLOR_YELLOW = (255, 210, 60)
 COLOR_ORANGE = (255, 150, 50)
-COLOR_CYAN = (160, 220, 240)         # 冰蓝，降低饱和度
+COLOR_CYAN = (91, 127, 168)          # 钢蓝（装饰/信息色，去冰蓝荧光）
 COLOR_PURPLE = (200, 120, 255)
 COLOR_PINK = (255, 120, 180)
 COLOR_GOLD = (255, 170, 60)          # 偏橙金，更有金属感
+COLOR_AMBER = (232, 165, 71)         # 唯一强调色：琥珀（方案核心强调）
 
 # 按钮颜色
-COLOR_BTN = (45, 45, 50)              # 深灰按钮底
-COLOR_BTN_HOVER = (80, 80, 90)        # 悬停时偏银灰
-COLOR_BTN_DISABLED = (35, 35, 38)
-COLOR_BTN_BORDER = (200, 200, 210)    # 白钢边框
+COLOR_BTN = (24, 41, 74)              # 按钮底（钢蓝灰卡片底）
+COLOR_BTN_HOVER = (31, 53, 95)        # 悬停提亮（钢蓝）
+COLOR_BTN_DISABLED = (16, 24, 40)
+COLOR_BTN_BORDER = (91, 127, 168)     # 钢蓝边框（非白钢）
 
 # 发光 / 面板 / 强调（2026-08-25 暗色钢铁科技风）
-COLOR_GLOW = (255, 255, 255, 30)      # 按钮外发光基础色（带 alpha）
-COLOR_PANEL_BG = (25, 25, 28, 220)    # 面板底色（RGBA）
-COLOR_ACCENT = (255, 90, 60)          # 强调色（橙红，危险/友军伤害警告）
+COLOR_GLOW = (91, 127, 168, 24)       # 按钮外发光基础色（钢蓝，去霓虹白光）
+COLOR_PANEL_BG = (19, 32, 58, 235)    # 面板底色（深海军蓝 RGBA）
+COLOR_ACCENT = (199, 84, 80)          # 强调色（危险/友军伤害警告，去霓虹橙红）
 
 # ===== UI 设计系统 Token（2026-08-23 美术优化）=====
 # 语义表面层：深蓝科技风的层次化背景（由深到浅，营造纵深）
-UI_BG_DEEP = (18, 18, 22)           # 最深层底色（= COLOR_BG 语义别名）
-UI_SURFACE = (22, 22, 26)           # 表面层（面板/底栏底色）
-UI_CARD = (30, 30, 34)              # 卡片层（深钢灰浮起元素底色）
-UI_CARD_HI = (48, 48, 54)           # 卡片顶部高光（提亮 1 档，制造立体）
-UI_CARD_BORDER = (80, 80, 90)       # 卡片描边（钢灰）
-UI_CARD_BORDER_HI = (160, 220, 240) # 卡片选中/强调描边（冰蓝）
+UI_BG_DEEP = (11, 18, 32)           # 最深层底色（深海军蓝）
+UI_SURFACE = (19, 32, 58)           # 表面层（面板/底栏底色，深海军蓝）
+UI_CARD = (24, 41, 74)              # 卡片层（钢蓝灰浮起元素底色）
+UI_CARD_HI = (31, 53, 95)           # 卡片顶部高光（提亮 1 档）
+UI_CARD_BORDER = (30, 58, 95)       # 卡片描边（深钢蓝）
+UI_CARD_BORDER_HI = (232, 165, 71)  # 卡片选中/强调描边（琥珀）
 
 # 强调色（语义别名，便于统一引用）
-UI_ACCENT = (255, 170, 60)          # 主强调金（标题/选中/进度）
-UI_ACCENT_CYAN = (160, 220, 240)    # 高亮青（副标题/链接/信息）
-UI_ACCENT_BTN = (80, 80, 90)        # 按钮底（深钢灰）
-UI_ACCENT_BTN_HI = (120, 120, 132)  # 按钮 hover 提亮（银灰）
+UI_ACCENT = (232, 165, 71)          # 主强调（琥珀，标题/选中/进度）
+UI_ACCENT_CYAN = (91, 127, 168)     # 高亮钢蓝（副标题/链接/信息）
+UI_ACCENT_BTN = (24, 41, 74)        # 按钮底（钢蓝灰）
+UI_ACCENT_BTN_HI = (31, 53, 95)     # 按钮 hover 提亮（钢蓝）
 
 # 阴影 / 发光
 UI_SHADOW = (0, 0, 0)               # 硬阴影色
@@ -59,9 +60,9 @@ UI_SHADOW_ALPHA = 130               # 硬阴影透明度
 UI_GLOW_ALPHA = 90                  # 强调发光透明度
 
 # 圆角 / 间距 / 动效（像素）
-UI_RADIUS_SM = 6
-UI_RADIUS_MD = 10
-UI_RADIUS_LG = 14
+UI_RADIUS_SM = 2
+UI_RADIUS_MD = 3
+UI_RADIUS_LG = 4
 UI_BTN_LIFT = 2                     # 按钮 hover 抬升像素
 
 # 徽章语义配色（底色 + 前景色成对，胶囊型标签用）

@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UI 质感升级方案 · 冷锻钢蓝 指挥终端</title>
+<style>
+  /* ===== 方案自有用 Token（文档即预览）===== */
+  :root{
+    --bg-deep:#0B1220;        /* 深海军蓝（非纯黑，带蓝调）*/
+    --bg-surface:#13203A;     /* 面板底 */
+    --bg-card:#18294A;        /* 卡片底 */
+    --bg-card-hi:#1F355F;     /* 卡片高亮 */
+    --border:#1E3A5F;         /* 1px 描边 */
+    --border-hi:#5B7FA8;       /* 钢蓝强调描边 */
+    --text-hi:#E8EEF7;        /* 主文字 */
+    --text-mid:#AEBDCC;       /* 次文字 */
+    --text-lo:#6B7B92;        /* 弱文字 */
+    --amber:#E8A547;          /* 唯一强调色：琥珀 */
+    --amber-dim:#B07A2E;      /* 琥珀暗态 */
+    --steel:#5B7FA8;          /* 钢蓝辅助 */
+    --steel-dim:#3A5A7A;
+    --danger:#C75450;
+    --ok:#5FA874;
+    --serif:Georgia,'Source Serif Pro','Noto Serif SC',serif;
+    --sans:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+    --mono:'JetBrains Mono','Fira Code','Consolas',monospace;
+    --r:2px;                  /* 硬朗圆角 */
+    --shadow:0 8px 24px rgba(0,0,0,.4);
+    --shadow-sm:0 2px 8px rgba(0,0,0,.3);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg-deep);color:var(--text-hi);font-family:var(--sans);line-height:1.7;-webkit-font-smoothing:antialiased}
+  body{background:
+     radial-gradient(1200px 600px at 80% -10%, rgba(91,127,168,.10), transparent 60%),
+     radial-gradient(900px 500px at -10% 110%, rgba(232,165,71,.06), transparent 55%),
+     var(--bg-deep);
+     min-height:100vh}
+  .wrap{max-width:1080px;margin:0 auto;padding:48px 32px 96px}
+
+  /* ===== Hero ===== */
+  .hero{padding:56px 0 40px;border-bottom:1px solid var(--border)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.32em;color:var(--amber);text-transform:uppercase;margin-bottom:18px}
+  .hero h1{font-family:var(--serif);font-size:54px;font-weight:700;letter-spacing:-.01em;line-height:1.1}
+  .hero h1 .steel{color:var(--steel);font-style:italic;font-weight:400}
+  .hero p.lead{font-size:18px;color:var(--text-mid);max-width:720px;margin-top:20px}
+  .meta{display:flex;gap:32px;margin-top:28px;flex-wrap:wrap}
+  .meta div{font-family:var(--mono);font-size:12px;color:var(--text-lo)}
+  .meta b{display:block;color:var(--text-hi);font-weight:500;font-size:13px;margin-top:4px}
+
+  /* ===== 节标题 ===== */
+  section{margin-top:64px}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:24px}
+  .sec-num{font-family:var(--mono);font-size:13px;color:var(--amber);letter-spacing:.1em}
+  .sec-title{font-family:var(--serif);font-size:26px;font-weight:700}
+  .sec-rule{flex:1;height:1px;background:linear-gradient(90deg,var(--border),transparent)}
+
+  /* ===== 通用卡片 ===== */
+  .card{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r);padding:24px}
+  .card + .card{margin-top:16px}
+  .card h4{font-family:var(--serif);font-size:18px;margin-bottom:12px;color:var(--text-hi)}
+  .card p,.card li{color:var(--text-mid);font-size:14.5px}
+  .card ul{list-style:none;padding:0}
+  .card ul li{padding-left:20px;position:relative;margin:6px 0}
+  .card ul li::before{content:"";position:absolute;left:0;top:11px;width:8px;height:1px;background:var(--amber)}
+
+  /* ===== 双栏 ===== */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+
+  /* ===== 审计表 ===== */
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--text-lo);text-transform:uppercase;font-weight:500;background:var(--bg-card)}
+  td code{font-family:var(--mono);font-size:12px;color:var(--steel)}
+  td .sw{display:inline-block;width:14px;height:14px;border-radius:2px;vertical-align:-2px;margin-right:6px;border:1px solid rgba(255,255,255,.15)}
+
+  /* ===== Token 块 ===== */
+  .tok-row{display:grid;grid-template-columns:130px 1fr 1fr;gap:0;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
+  .tok-row:last-child{border-bottom:0}
+  .tok-name{font-family:var(--mono);font-size:12px;color:var(--text-hi)}
+  .tok-val{font-family:var(--mono);font-size:12px;color:var(--steel)}
+  .tok-swatch{width:100%;height:24px;border-radius:2px;border:1px solid var(--border)}
+
+  /* ===== 组件预览（实时渲染）===== */
+  .preview{background:var(--bg-deep);border:1px solid var(--border);border-radius:var(--r);padding:28px;margin-top:8px}
+  .preview-label{font-family:var(--mono);font-size:11px;color:var(--text-lo);letter-spacing:.1em;margin-bottom:14px;text-transform:uppercase}
+
+  /* 方案按钮：几何切角 + 琥珀压线 */
+  .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--sans);font-size:14px;font-weight:500;color:var(--text-hi);background:var(--bg-card);border:1px solid var(--border-hi);padding:11px 22px;cursor:pointer;letter-spacing:.02em;clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);transition:all .2s}
+  .btn:hover{background:var(--bg-card-hi);border-color:var(--amber);color:#fff}
+  .btn.primary{background:var(--amber);color:#1a1206;border-color:var(--amber);font-weight:600}
+  .btn.primary:hover{background:#f0b55a}
+  .btn.ghost{background:transparent;color:var(--text-mid);border-color:var(--border)}
+  .btn-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+
+  /* 面板：钢蓝顶高光 + 底暗线 */
+  .panel{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 22px;position:relative}
+  .panel::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--border-hi) 30%,var(--border-hi) 70%,transparent)}
+  .panel-title{font-family:var(--serif);font-size:16px;color:var(--text-hi);margin-bottom:6px}
+  .panel-sub{font-size:13px;color:var(--text-lo);font-family:var(--mono)}
+
+  /* 数据条 */
+  .bar{height:6px;background:var(--bg-deep);border:1px solid var(--border);position:relative;overflow:hidden}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,var(--danger),var(--amber))}
+
+  /* 标签 */
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:3px 8px;border:1px solid var(--steel-dim);color:var(--steel);letter-spacing:.06em}
+  .tag.amber{border-color:var(--amber-dim);color:var(--amber)}
+
+  /* 区隔对照 */
+  .vs{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+  @media(max-width:760px){.vs{grid-template-columns:1fr}}
+  .vs > div{padding:20px}
+  .vs .t{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px}
+  .vs .target{background:#06080c;border-right:1px solid var(--border)}
+  .vs .target .t{color:#00f0ff}
+  .vs .ours{background:var(--bg-surface)}
+  .vs .ours .t{color:var(--amber)}
+  .vs ul{list-style:none;font-size:13px}
+  .vs li{padding:5px 0;color:var(--text-mid)}
+  .vs .target li::before{content:"› ";color:#ff2d6f;font-family:var(--mono)}
+  .vs .ours li::before{content:"— ";color:var(--amber);font-family:var(--mono)}
+
+  /* 优先级表 */
+  .pri{display:inline-block;width:22px;height:22px;border-radius:2px;font-family:var(--mono);font-size:11px;text-align:center;line-height:22px;margin-right:8px}
+  .pri.p0{background:var(--danger);color:#fff}
+  .pri.p1{background:var(--amber);color:#1a1206}
+  .pri.p2{background:var(--steel-dim);color:var(--text-hi)}
+
+  code.inline{font-family:var(--mono);font-size:12px;background:var(--bg-card);padding:1px 6px;border-radius:2px;color:var(--amber)}
+  .note{border-left:2px solid var(--amber);padding:12px 18px;background:rgba(232,165,71,.06);font-size:13.5px;color:var(--text-mid);margin:16px 0}
+  .foot{margin-top:80px;padding-top:24px;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--text-lo);letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ===== Hero ===== -->
+  <div class="hero">
+    <div class="eyebrow">UI Redesign Proposal · 2026.08</div>
+    <h1>冷锻钢蓝<span class="steel"> · </span>指挥终端</h1>
+    <p class="lead">参考目标站 kill689.github.io/tanke 的视觉质感，产出一套在配色、字体、形态、装饰语言上明显区隔的升级方案。以哑光金属质感取代荧光霓虹，以几何切角取代圆角玻璃，以衬线+无衬线混排取代单一等宽，达成更高级、更精致、更具辨识度的界面观感。</p>
+    <div class="meta">
+      <div>方向<b>哑光金属 · 深海军蓝 · 单琥珀强调</b></div>
+      <div>区隔维度<b>配色 / 字体 / 形态 / 装饰 / 动效</b></div>
+      <div>落地范围<b>constants · ui_utils · screens · vfx</b></div>
+    </div>
+  </div>
+
+  <!-- ===== 1. 目标站审计 ===== -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><span class="sec-title">目标站审计摘要</span><span class="sec-rule"></span></div>
+    <p style="color:var(--text-mid);font-size:14.5px;margin-bottom:16px">以下 token 经源码级审计提取，作为"必须避开"的基准，确保新方案不与原网站雷同。</p>
+    <div class="card">
+      <table>
+        <thead><tr><th>维度</th><th>目标站特征</th><th>典型值</th></tr></thead>
+        <tbody>
+          <tr><td>背景</td><td>深空炭黑 + 径向暗角</td><td><span class="sw" style="background:#040608"></span><code>#040608</code></td></tr>
+          <tr><td>主色</td><td>荧光青 / 紫 / 红霓虹</td><td><span class="sw" style="background:#00f0ff"></span><code>#00f0ff</code> <span class="sw" style="background:#ff2d6f"></span><code>#ff2d6f</code></td></tr>
+          <tr><td>文字</td><td>亮白 + 冷灰</td><td><code>#e0e6ed / #7a8290</code></td></tr>
+          <tr><td>字体</td><td>单一等宽 + 超大字距</td><td><code>JetBrains Mono, letter-spacing 6-12px</code></td></tr>
+          <tr><td>圆角</td><td>硬朗小圆角</td><td><code>2-4px</code></td></tr>
+          <tr><td>玻璃</td><td>backdrop blur + saturate</td><td><code>blur(8px) saturate(1.8)</code></td></tr>
+          <tr><td>阴影</td><td>多层霓虹光晕</td><td><code>0 0 20px rgba(0,240,255,.5)</code></td></tr>
+          <tr><td>装饰</td><td>CRT 扫描线 + ▎竖线字符 + 光扫</td><td><code>repeating-linear-gradient</code></td></tr>
+          <tr><td>动效</td><td>霓虹呼吸 + 光扫 hover</td><td><code>transition .3s / @keyframes</code></td></tr>
+          <tr><td>观感</td><td colspan="2">赛博朋克荧光霓虹风</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note"><b>设计纪律：</b>新方案在上述每一维度都需采取相反或显著不同的选择，而非"微调"。区隔清单见第 5 节。</div>
+  </section>
+
+  <!-- ===== 2. 设计理念 ===== -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><span class="sec-title">设计理念 · 为何走哑光金属</span><span class="sec-rule"></span></div>
+    <div class="grid2">
+      <div class="card">
+        <h4>反霓虹：哑光质感更耐看</h4>
+        <p>目标站的荧光霓虹在长时间游戏时易视觉疲劳，且与"竞赛附加题"的严肃气质略有错位。哑光金属以低饱和、有重量感的表面，传达"装备"而非"特效"，契合坦克军武题材，也更显克制的高级。</p>
+      </div>
+      <div class="card">
+        <h4>反等宽：衬线标题 + 无衬线正文</h4>
+        <p>目标站全程等宽字体配超大字距，偏"终端极客"。新方案用衬线（标题/数字）承担权威感与仪式感，无衬线承担可读正文，等宽仅用于真实数据/代号——三种字体各司其职，层次更分明。</p>
+      </div>
+      <div class="card">
+        <h4>反圆角玻璃：几何切角</h4>
+        <p>目标站小圆角 + backdrop blur 是典型"玻璃态"。新方案改用 <code class="inline">clip-path</code> 切角，呈现装甲板的折面感，与坦克的多边形轮廓同构，强化主题而非套用通用 UI 风。</p>
+      </div>
+      <div class="card">
+        <h4>反多色霓虹：单一琥珀强调</h4>
+        <p>目标站青/紫/红三色霓虹分散焦点。新方案只保留一个强调色——琥珀金，用于关键操作、当前状态、可交互反馈。视觉焦点收敛，信息层级更清晰。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 3. 设计 Token ===== -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><span class="sec-title">完整设计 Token</span><span class="sec-rule"></span></div>
+
+    <div class="card">
+      <h4>配色</h4>
+      <div class="tok-row"><div class="tok-name">BG_DEEP</div><div class="tok-val">#0B1220</div><div class="tok-swatch" style="background:#0B1220"></div></div>
+      <div class="tok-row"><div class="tok-name">BG_SURFACE</div><div class="tok-val">#13203A</div><div class="tok-swatch" style="background:#13203A"></div></div>
+      <div class="tok-row"><div class="tok-name">BG_CARD</div><div class="tok-val">#18294A</div><div class="tok-swatch" style="background:#18294A"></div></div>
+      <div class="tok-row"><div class="tok-name">BG_CARD_HI</div><div class="tok-val">#1F355F</div><div class="tok-swatch" style="background:#1F355F"></div></div>
+      <div class="tok-row"><div class="tok-name">BORDER</div><div class="tok-val">#1E3A5F</div><div class="tok-swatch" style="background:#1E3A5F"></div></div>
+      <div class="tok-row"><div class="tok-name">STEEL</div><div class="tok-val">#5B7FA8</div><div class="tok-swatch" style="background:#5B7FA8"></div></div>
+      <div class="tok-row"><div class="tok-name">AMBER</div><div class="tok-val">#E8A547</div><div class="tok-swatch" style="background:#E8A547"></div></div>
+      <div class="tok-row"><div class="tok-name">TEXT_HI</div><div class="tok-val">#E8EEF7</div><div class="tok-swatch" style="background:#E8EEF7"></div></div>
+      <div class="tok-row"><div class="tok-name">TEXT_MID</div><div class="tok-val">#AEBDCC</div><div class="tok-swatch" style="background:#AEBDCC"></div></div>
+      <div class="tok-row"><div class="tok-name">TEXT_LO</div><div class="tok-val">#6B7B92</div><div class="tok-swatch" style="background:#6B7B92"></div></div>
+      <div class="tok-row"><div class="tok-name">DANGER</div><div class="tok-val">#C75450</div><div class="tok-swatch" style="background:#C75450"></div></div>
+    </div>
+
+    <div class="grid2" style="margin-top:16px">
+      <div class="card">
+        <h4>字体</h4>
+        <div class="tok-row"><div class="tok-name">SERIF</div><div class="tok-val" style="font-family:var(--serif)">Georgia / Noto Serif</div><div></div></div>
+        <div class="tok-row"><div class="tok-name">SANS</div><div class="tok-val">system-ui / PingFang</div><div></div></div>
+        <div class="tok-row"><div class="tok-name">MONO</div><div class="tok-val" style="font-family:var(--mono)">JetBrains Mono</div><div></div></div>
+        <p style="margin-top:12px;font-size:13px">标题/数字用衬线、正文用无衬线、数据代号用等宽。字距：标题 -0.01em（收紧），数据 +0.06em（松开），不再用 6-12px 超大字距。</p>
+      </div>
+      <div class="card">
+        <h4>形态 / 阴影 / 间距</h4>
+        <ul>
+          <li>圆角 <code class="inline">2px</code>（硬朗），关键元素用 <code class="inline">clip-path</code> 切角 8px</li>
+          <li>阴影单层克制：<code class="inline">0 8px 24px rgba(0,0,0,.4)</code></li>
+          <li>面板顶高光：1px 钢蓝渐变线</li>
+          <li>间距节奏 8 / 16 / 24 / 40</li>
+          <li>禁用 backdrop-filter（改为实色 + 1px 描边）</li>
+          <li>禁用霓虹光晕 box-shadow</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 4. 组件预览 ===== -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><span class="sec-title">组件实时预览</span><span class="sec-rule"></span></div>
+
+    <div class="card">
+      <div class="preview-label">按钮 · 几何切角 + 琥珀压线</div>
+      <div class="preview">
+        <div class="btn-row">
+          <button class="btn primary">开始作战</button>
+          <button class="btn">选择关卡</button>
+          <button class="btn ghost">返回</button>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--text-lo);margin-top:10px">主操作=琥珀实底；次操作=钢蓝描边卡片底；幽灵=透明描边。hover 时描边转琥珀、字转白，无光扫、无霓虹。</p>
+    </div>
+
+    <div class="card">
+      <div class="preview-label">信息面板 · 顶高光 + 底暗线 + 1px 描边</div>
+      <div class="preview">
+        <div class="grid2">
+          <div class="panel">
+            <div class="panel-sub">P1 · 轻型侦察车</div>
+            <div class="panel-title">装甲状态</div>
+            <div class="bar" style="margin-top:8px"><i style="width:72%"></i></div>
+            <div style="font-family:var(--mono);font-size:12px;color:var(--text-lo);margin-top:6px">72 / 100</div>
+          </div>
+          <div class="panel">
+            <div class="panel-sub">第 3 关 · 剩余 08</div>
+            <div class="panel-title">作战得分</div>
+            <div style="font-family:var(--serif);font-size:28px;color:var(--amber);font-weight:700">12,480</div>
+            <div style="margin-top:6px"><span class="tag amber">连击 x3</span> <span class="tag">无伤</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="preview-label">数据徽章 · 等宽代号 + 钢蓝描边</div>
+      <div class="preview">
+        <div class="btn-row">
+          <span class="tag">SCOUT-01</span>
+          <span class="tag amber">LASER</span>
+          <span class="tag">HEAVY-02</span>
+          <span class="tag">KZY-Ω</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 5. 区隔对照 ===== -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><span class="sec-title">与目标站区隔对照</span><span class="sec-rule"></span></div>
+    <div class="vs">
+      <div class="target">
+        <div class="t">目标站 · 赛博朋克荧光</div>
+        <ul>
+          <li>深空炭黑 #040608 纯黑</li>
+          <li>荧光青/紫/红三色霓虹</li>
+          <li>单一等宽字体 + 6-12px 字距</li>
+          <li>小圆角 + backdrop blur 玻璃态</li>
+          <li>多层霓虹 box-shadow 光晕</li>
+          <li>CRT 扫描线 + 径向暗角</li>
+          <li>▎字符竖线 + 光扫 hover</li>
+          <li>呼吸式霓虹明灭</li>
+        </ul>
+      </div>
+      <div class="ours">
+        <div class="t">本方案 · 冷锻钢蓝指挥终端</div>
+        <ul>
+          <li>深海军蓝 #0B1220 带蓝调（非纯黑）</li>
+          <li>单一琥珀强调，钢蓝辅助，无荧光</li>
+          <li>衬线标题 + 无衬线正文 + 等宽数据</li>
+          <li>2px 硬圆角 + clip-path 几何切角</li>
+          <li>单层克制阴影，无光晕</li>
+          <li>顶高光 + 底暗线，无扫描线无暗角</li>
+          <li>序号编号 + 细线分隔，无字符装饰</li>
+          <li>描边色 + 文字色切换，无明灭</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note">五个维度（配色/字体/形态/装饰/动效）均采取显著不同选择，满足"明显区别于原网站、避免雷同"的要求。</div>
+  </section>
+
+  <!-- ===== 6. 落地指引 ===== -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><span class="sec-title">各界面落地指引</span><span class="sec-rule"></span></div>
+    <div class="card">
+      <h4>主菜单</h4>
+      <ul>
+        <li>标题改衬线、字距收紧 -0.01em，去掉呼吸明灭，改为静态+下方 1px 琥珀压线</li>
+        <li>按钮组外包面板改实色 #13203A + 顶高光线 + clip-path 切角</li>
+        <li>背景装饰十字准星改为钢蓝细线序号编号（01-04），无扫描线</li>
+        <li>版本号改等宽 + 钢蓝，去掉金色</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>游戏内 HUD</h4>
+      <ul>
+        <li>三块玻璃面板改实色 + 1px 钢蓝描边 + 顶高光，去 backdrop blur</li>
+        <li>血量条保留红→琥珀渐变，但去掉霓虹光晕</li>
+        <li>得分改衬线大号琥珀，关卡数改等宽钢蓝</li>
+        <li>友军警告条保留闪烁，但底色改 DANGER #C75450 而非荧光红</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>结算 / 车库</h4>
+      <ul>
+        <li>结算面板用切角面板，标题衬线，数据等宽</li>
+        <li>车库坦克卡片用 BG_CARD + 钢蓝描边，选中态描边转琥珀</li>
+        <li>坦克代号徽章（SCOUT-01 / HEAVY-02 / LASER / KZY-Ω）等宽钢蓝</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===== 7. 落地优先级 ===== -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><span class="sec-title">落地优先级与迁移风险</span><span class="sec-rule"></span></div>
+    <div class="card">
+      <table>
+        <thead><tr><th style="width:60px">优先级</th><th>工作项</th><th>影响模块</th><th>风险</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pri p0">P0</span></td><td>配色 Token 迁移（constants.py COLOR_* + UI_*）</td><td>constants</td><td>低 · 纯数值替换</td></tr>
+          <tr><td><span class="pri p0">P0</span></td><td>面板/按钮去 backdrop、改实色+描边+切角</td><td>ui_utils</td><td>低 · draw_glass_panel 重写</td></tr>
+          <tr><td><span class="pri p1">P1</span></td><td>字体栈接入（标题衬线/正文无衬线/数据等宽）</td><td>ui_utils load_fonts + screens</td><td>中 · 字号需重校</td></tr>
+          <tr><td><span class="pri p1">P1</span></td><td>主菜单去扫描线/呼吸、改序号编号</td><td>screens MenuScreen</td><td>低 · 单类</td></tr>
+          <tr><td><span class="pri p2">P2</span></td><td>坦克代号徽章 + 车库卡片描边选中态</td><td>screens + ui_utils</td><td>低</td></tr>
+          <tr><td><span class="pri p2">P2</span></td><td>切角 clip-path 在 pygame 的等价实现（多边形绘制）</td><td>ui_utils</td><td>中 · 需 vector 实现</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note"><b>迁移纪律：</b>遵循项目既有约束——保留全部关键词、命名与功能行为，仅升级视觉表现；每轮改动后跑 py_compile + 无头冒烟；网页端字体子集下 emoji/符号仍需矢量绘制。</div>
+  </section>
+
+  <div class="foot">冷锻钢蓝 · 指挥终端 / UI Redesign Proposal / 坦克大战 · 2026.08</div>
+</div>
+</body>
+</html>
