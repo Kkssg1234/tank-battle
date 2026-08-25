@@ -116,6 +116,9 @@ class MenuScreen:
 
     def update(self, dt):
         self.time += dt
+        # 全屏按钮标签随状态切换（全屏时显示「窗口」，否则「全屏」）
+        if self.fullscreen_btn is not None:
+            self.fullscreen_btn.text = "窗口" if self.game.is_fullscreen() else "全屏"
         if self.toast_timer > 0:
             self.toast_timer -= dt
             if self.toast_timer <= 0:

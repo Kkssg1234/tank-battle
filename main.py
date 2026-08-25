@@ -22,6 +22,7 @@ from screens import (
     GarageScreen,
 )
 from save_manager import SaveManager
+from particles import update_ui_particles, draw_ui_particles
 
 # 判断是否在浏览器（wasm）环境
 try:
@@ -43,23 +44,31 @@ class Game:
         # 桌面端：用「离屏 960x640 画布绘制 + 等比 letterbox 放大铺满全屏」替代旧的
         # pygame.SCALED|FULLSCREEN——后者会拉伸形变且非整数倍放大发虚；新方案保持
         # 正确宽高比（黑边留白）、画面锐利，鼠标坐标在事件循环中映射回画布空间。
+        # 桌面端：启动即捕获「真实桌面分辨率」（仅一次）。
+        # 关键：之后 toggle 不再调用 pygame.display.Info() 重新读取——
+        # 否则从全屏切回窗口(SCALED)后，Info 会返回「窗口尺寸」而非桌面尺寸，
+        # 再次进入全屏时会以错误的(变小)分辨率 set_mode，表现为「无法恢复全屏」。
+        _dinfo = pygame.display.Info()
+        self._desktop_w = int(getattr(_dinfo, "current_w", 0) or SCREEN_WIDTH)
+        self._desktop_h = int(getattr(_dinfo, "current_h", 0) or SCREEN_HEIGHT)
+
         self.native_w = SCREEN_WIDTH
         self.native_h = SCREEN_HEIGHT
         self._fit_scale = 1.0
         self._fit_x = 0
         self._fit_y = 0
         self.use_offscreen = False          # 标志：是否走离屏→显示 的放大流程
+        # 持久离屏画布：避免每次 toggle 重新分配 Surface
+        self.offscreen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         if _IN_BROWSER:
             self.screen = self.display = pygame.display.set_mode(
                 (SCREEN_WIDTH, SCREEN_HEIGHT), 0)
         else:
-            info = pygame.display.Info()
-            nw = getattr(info, "current_w", 0) or 0
-            nh = getattr(info, "current_h", 0) or 0
+            nw, nh = self._desktop_w, self._desktop_h
             # 取不到真实分辨率（无头/虚拟显示）时回退到窗口模式，避免 set_mode 报错
             if nw > 0 and nh > 0:
                 self.native_w, self.native_h = nw, nh
-                self.screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+                self.screen = self.offscreen
                 try:
                     self.display = pygame.display.set_mode((nw, nh), pygame.FULLSCREEN)
                 except Exception:
@@ -161,13 +170,13 @@ class Game:
             self.use_offscreen = False
             self._compute_fit()
             return
-        # 进入全屏：离屏画布 + 等比 letterbox
-        info = pygame.display.Info()
-        nw = getattr(info, "current_w", 0) or SCREEN_WIDTH
-        nh = getattr(info, "current_h", 0) or SCREEN_HEIGHT
-        self.native_w, self.native_h = nw, nh
+        # 进入全屏：离屏画布 + 等比 letterbox。
+        # 使用启动时捕获的真实桌面分辨率（self._desktop_w/_h），
+        # 不再调用 display.Info()，避免窗口态后读到错误分辨率。
+        nw, nh = self._desktop_w, self._desktop_h
         if nw > 0 and nh > 0:
-            self.screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            self.native_w, self.native_h = nw, nh
+            self.screen = self.offscreen
             try:
                 self.display = pygame.display.set_mode((nw, nh), pygame.FULLSCREEN)
             except Exception:
@@ -184,6 +193,12 @@ class Game:
             self.screen = self.display
             self.use_offscreen = False
         self._compute_fit()
+
+    def is_fullscreen(self):
+        """返回当前是否处于全屏（供 UI 按钮显示状态）。浏览器端始终返回 False。"""
+        if _IN_BROWSER:
+            return False
+        return self.use_offscreen
 
     def toggle_web_fullscreen(self):
         """网页端：通过浏览器 Fullscreen API 进入/退出全屏（需用户手势触发）。
@@ -271,6 +286,9 @@ class Game:
                 current.update(dt)
             if current and hasattr(current, "draw"):
                 current.draw(self.screen, self.fonts)
+            # UI 悬停粒子（按钮火花）每帧更新并绘制到画布
+            update_ui_particles(dt)
+            draw_ui_particles(self.screen)
             self._present()
         pygame.quit()
         sys.exit(0)
@@ -290,6 +308,9 @@ class Game:
                 current.update(dt)
             if current and hasattr(current, "draw"):
                 current.draw(self.screen, self.fonts)
+            # UI 悬停粒子（按钮火花）每帧更新并绘制到画布
+            update_ui_particles(dt)
+            draw_ui_particles(self.screen)
             self._present()
             await asyncio.sleep(0)  # 让出控制权给事件循环，pygbag 必需
 

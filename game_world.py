@@ -11,6 +11,7 @@ from map_generator import MapGenerator
 from powerup import PowerUpManager
 from level_config import get_level_config, LEVEL_ENEMY_COUNTS
 from vfx import ScreenShake, draw_glow, draw_explosion, draw_vignette
+from particles import ParticleSystem
 
 
 class Explosion:
@@ -75,6 +76,8 @@ class GameWorld:
         self.enemies = []
         self.bullets = []
         self.explosions = []
+        # 轻量级粒子系统（炮口火焰 / 爆炸碎片）
+        self.particles = ParticleSystem()
 
         # 道具系统
         self.powerup_manager = PowerUpManager(self.game_map)
@@ -181,6 +184,7 @@ class GameWorld:
                 enemy_speed = (BULLET_SPEED * LEVEL1_ENEMY_BULLET_SPEED_MULT
                                if self.level == 1 else BULLET_SPEED) * ENEMY_BULLET_SPEED_MULT
                 self.bullets.extend(enemy.shoot(bullet_speed=enemy_speed))
+                self._emit_muzzle(enemy)
             enemy.update(dt)
 
         # ---- 生成新敌人 ----
@@ -219,11 +223,13 @@ class GameWorld:
                 base_score = 100 + self.level * 20
                 self.score += base_score
                 self.explosions.append(Explosion(e.x, e.y, big=True, on_big=self.shake.add))
+                self.particles.spawn_explosion(e.x, e.y, None, big=True)
         self.enemies = remaining
 
         # ---- 玩家死亡 ----
         if not self.player.alive:
             self.explosions.append(Explosion(self.player.x, self.player.y, big=True, on_big=self.shake.add))
+            self.particles.spawn_explosion(self.player.x, self.player.y, None, big=True)
             self.result = GameWorld.RESULT_LOSE
 
         # ---- 胜利判定 ----
@@ -237,12 +243,22 @@ class GameWorld:
         self.explosions = [e for e in self.explosions if e.alive]
         update_particles(dt)
         update_ricochet(dt)
+        self.particles.update(dt)
 
     def _player_fire(self):
         """根据当前生效道具发射子弹（逻辑已集中到 Tank.shoot()）"""
         new_bullets = self.player.shoot()
         if new_bullets:
             self.bullets.extend(new_bullets)
+            self._emit_muzzle(self.player)
+
+    def _emit_muzzle(self, tank):
+        """在坦克炮口生成炮口火焰粒子（朝射击方向）。"""
+        vx, vy = DIR_VECTORS[tank.direction]
+        half = TANK_SIZE // 2
+        mx = tank.x + vx * (half + 6)
+        my = tank.y + vy * (half + 6)
+        self.particles.spawn_muzzle_flash(mx, my, tank.direction)
 
     # ========= 统计 =========
     def remaining_enemies(self):
@@ -275,6 +291,8 @@ class GameWorld:
 
         # 粒子（弹射反弹白点等）
         draw_particles(screen, arena_x, arena_y)
+        # 轻量级粒子（炮口火焰 / 爆炸碎片）
+        self.particles.draw(screen, arena_x, arena_y)
         # 跳弹环形闪光反馈
         draw_ricochet(screen, arena_x, arena_y)
 
@@ -335,6 +353,8 @@ class TwoPlayerGameWorld:
         self.enemies = []
         self.bullets = []
         self.explosions = []
+        # 轻量级粒子系统（炮口火焰 / 爆炸碎片）
+        self.particles = ParticleSystem()
 
         # 道具系统（对战模式也启用道具箱，增加变数）
         self.powerup_manager = PowerUpManager(self.game_map)
@@ -415,6 +435,7 @@ class TwoPlayerGameWorld:
             self.player1.try_move(p1["dx"], p1["dy"], self.game_map, all_tanks)
             if p1["fire"] and self.player1.can_fire():
                 self.bullets.extend(self.player1.shoot())
+                self._emit_muzzle(self.player1)
         self.player1.update(dt)
 
         # ---- 玩家 2 ----
@@ -429,6 +450,7 @@ class TwoPlayerGameWorld:
                 self.player2.try_move(p2["dx"], p2["dy"], self.game_map, all_tanks)
             if p2["fire"] and self.player2.can_fire():
                 self.bullets.extend(self.player2.shoot())
+                self._emit_muzzle(self.player2)
         self.player2.update(dt)
 
         # ---- 道具系统（对两个玩家都生效）----
@@ -448,6 +470,7 @@ class TwoPlayerGameWorld:
                     enemy_speed = (BULLET_SPEED * LEVEL1_ENEMY_BULLET_SPEED_MULT
                                    if self.level == 1 else BULLET_SPEED)
                     self.bullets.extend(enemy.shoot(bullet_speed=enemy_speed))
+                    self._emit_muzzle(enemy)
                 enemy.update(dt)
 
             # 生成新敌人
@@ -484,6 +507,7 @@ class TwoPlayerGameWorld:
                     self.enemies_killed += 1
                     self.score += 100 + self.level * 20
                     self.explosions.append(Explosion(e.x, e.y, big=True, on_big=self.shake.add))
+                    self.particles.spawn_explosion(e.x, e.y, None, big=True)
             self.enemies = remaining
 
         # ---- 胜负判定 ----
@@ -495,6 +519,7 @@ class TwoPlayerGameWorld:
         self.explosions = [e for e in self.explosions if e.alive]
         update_particles(dt)
         update_ricochet(dt)
+        self.particles.update(dt)
 
     def _nearest_alive_player(self, enemy):
         """返回距离敌人最近的存活玩家"""
@@ -507,6 +532,14 @@ class TwoPlayerGameWorld:
                     best_d = d
                     best = p
         return best
+
+    def _emit_muzzle(self, tank):
+        """在坦克炮口生成炮口火焰粒子（朝射击方向）。"""
+        vx, vy = DIR_VECTORS[tank.direction]
+        half = TANK_SIZE // 2
+        mx = tank.x + vx * (half + 6)
+        my = tank.y + vy * (half + 6)
+        self.particles.spawn_muzzle_flash(mx, my, tank.direction)
 
     def _check_bullet_vs_tanks(self, bullet):
         """子弹与所有坦克碰撞：players + enemies"""
@@ -588,6 +621,7 @@ class TwoPlayerGameWorld:
             if not self.player1.alive or not self.player2.alive:
                 dead = self.player1 if not self.player1.alive else self.player2
                 self.explosions.append(Explosion(dead.x, dead.y, big=True, on_big=self.shake.add))
+                self.particles.spawn_explosion(dead.x, dead.y, None, big=True)
                 self.result = TwoPlayerGameWorld.RESULT_LOSE
                 return
             # 全歼敌人 = 胜利
@@ -596,11 +630,15 @@ class TwoPlayerGameWorld:
         else:
             # 对战模式
             if not self.player1.alive and self.player2.alive:
+                self.particles.spawn_explosion(self.player1.x, self.player1.y, None, big=True)
                 self.result = TwoPlayerGameWorld.RESULT_P2_WIN
             elif not self.player2.alive and self.player1.alive:
+                self.particles.spawn_explosion(self.player2.x, self.player2.y, None, big=True)
                 self.result = TwoPlayerGameWorld.RESULT_P1_WIN
             # 同时死亡（极罕见）：判平局，视为 RESULT_LOSE 或重赛，这里判 RESULT_LOSE
             elif not self.player1.alive and not self.player2.alive:
+                self.particles.spawn_explosion(self.player1.x, self.player1.y, None, big=True)
+                self.particles.spawn_explosion(self.player2.x, self.player2.y, None, big=True)
                 self.result = TwoPlayerGameWorld.RESULT_LOSE
 
     # ========= 统计 =========
@@ -632,6 +670,8 @@ class TwoPlayerGameWorld:
             b.draw(screen, arena_x, arena_y)
         # 粒子（弹射反弹白点等）
         draw_particles(screen, arena_x, arena_y)
+        # 轻量级粒子（炮口火焰 / 爆炸碎片）
+        self.particles.draw(screen, arena_x, arena_y)
         # 跳弹环形闪光反馈
         draw_ricochet(screen, arena_x, arena_y)
         # 爆炸

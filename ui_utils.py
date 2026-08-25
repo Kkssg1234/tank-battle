@@ -3,9 +3,11 @@ UI工具模块 - 按钮、文字绘制、背景渲染等通用UI组件
 """
 import os
 import math
+import random
 
 import pygame
 from constants import *
+from particles import ui_emit_hover_spark
 
 
 class Button:
@@ -65,6 +67,9 @@ class Button:
             pygame.draw.rect(g_surf, COLOR_AMBER, g_surf.get_rect(),
                              width=1, border_radius=UI_RADIUS_MD + pad)
             screen.blit(g_surf, (r.x - pad, r.y - pad))
+            # 悬停火花（UI 粒子，主循环每帧统一更新/绘制）
+            if random.random() < 0.25:
+                ui_emit_hover_spark(r.centerx, r.y, COLOR_AMBER)
 
         # 2) 按钮主体（硬朗圆角）
         pygame.draw.rect(screen, bg_color, body, border_radius=UI_RADIUS_MD)
