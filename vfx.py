@@ -15,7 +15,11 @@
 import math
 import random
 import pygame
-from constants import TANK_SIZE
+from constants import TANK_SIZE, COLOR_GOLD
+from constants import (
+    TANK_STYLE_STANDARD, TANK_STYLE_SCOUT, TANK_STYLE_HEAVY,
+    TANK_STYLE_SNIPER, TANK_STYLE_KZY,
+)
 
 # 坦克 Sprite 留白（投影 + 炮管超出车身所需 padding）
 TANK_PAD = 7
@@ -127,11 +131,13 @@ _DIR_BARREL = {
 }
 
 
-def get_tank_sprite(color, direction, frame=0):
-    """预烘焙一辆坦克 surface（含 TANK_PAD 留白），按 (color, direction, frame) 缓存。
+def get_tank_sprite(color, direction, frame=0, style=TANK_STYLE_STANDARD):
+    """预烘焙一辆坦克 surface（含 TANK_PAD 留白），按 (color, direction, frame, style) 缓存。
     frame∈{0,1}：履带齿纹偏移两帧，形成履带滚动动画（静止时固定用 frame=0）。
+    style：视觉风格标识（scout/heavy/sniper/kzy/standard），仅改变外形/炮管/炮塔细节装饰，
+           不改动碰撞尺寸 TANK_SIZE。
     表面为 SRCALPHA，绘制时直接 blit 到屏幕对应位置。"""
-    key = (color, direction, frame & 1)
+    key = (color, direction, frame & 1, style)
     surf = _TANK_CACHE.get(key)
     if surf is not None:
         return surf
@@ -145,23 +151,45 @@ def get_tank_sprite(color, direction, frame=0):
     pygame.draw.ellipse(surf, (0, 0, 0, 90),
                         (cx - half - 1, cy + half - 4, TANK_SIZE + 2, 12))
 
-    body_top = cy - half + 6
-    body_h = TANK_SIZE - 12
-    body_rect = pygame.Rect(cx - half + 2, body_top, TANK_SIZE - 4, body_h)
+    # ---- 车身尺寸风格化（仅视觉，不碰 TANK_SIZE 碰撞框）----
+    # scout 瘦长、heavy 宽大、其余标准；高度随宽度联动保持居中
+    if style == TANK_STYLE_SCOUT:
+        body_w = TANK_SIZE - 10
+        body_h = TANK_SIZE - 6
+    elif style == TANK_STYLE_HEAVY:
+        body_w = TANK_SIZE - 0          # 撑满可用宽
+        body_h = TANK_SIZE - 16
+    else:
+        body_w = TANK_SIZE - 4
+        body_h = TANK_SIZE - 12
+    body_top = cy - body_h // 2
+    body_rect = pygame.Rect(cx - body_w // 2, body_top, body_w, body_h)
 
-    # 2) 履带（上下两条深灰带 + 齿纹）
+    # 2) 履带（上下两条深灰带 + 齿纹）；KZY 用锯齿细节
     track_color = (35, 35, 45)
     track_h = 8
     for ty in (cy - half - 2, cy + half - track_h + 2):
         pygame.draw.rect(surf, track_color,
                          (cx - half - 3, ty, TANK_SIZE + 6, track_h), border_radius=3)
-    # 齿纹（浅一点，制造机械感；frame 控制相位偏移，形成滚动动画）
     phase = 3 if (frame & 1) else 0
-    for i in range(-half + phase, half, 6):
-        pygame.draw.line(surf, (60, 60, 72),
-                         (cx + i, cy - half - 1), (cx + i, cy - half + track_h + 1), 1)
-        pygame.draw.line(surf, (60, 60, 72),
-                         (cx + i, cy + half - track_h + 1), (cx + i, cy + half + 2), 1)
+    if style == TANK_STYLE_KZY:
+        # 锯齿履带：每段三角形齿（机械锯齿感）
+        for i in range(-half + phase, half, 6):
+            tcol = (70, 70, 84)
+            for (ax, ay_top, ay_bot) in [
+                (cx + i, cy - half - 2, cy - half + track_h + 2),
+                (cx + i, cy + half - track_h - 2, cy + half + 2),
+            ]:
+                tri = [(ax, ay_top), (ax + 3, ay_top), (ax + 1, (ay_top + ay_bot) // 2)]
+                pygame.draw.polygon(surf, tcol, tri)
+                tri2 = [(ax, ay_bot), (ax + 3, ay_bot), (ax + 1, (ay_top + ay_bot) // 2)]
+                pygame.draw.polygon(surf, tcol, tri2)
+    else:
+        for i in range(-half + phase, half, 6):
+            pygame.draw.line(surf, (60, 60, 72),
+                             (cx + i, cy - half - 1), (cx + i, cy - half + track_h + 1), 1)
+            pygame.draw.line(surf, (60, 60, 72),
+                             (cx + i, cy + half - track_h + 1), (cx + i, cy + half + 2), 1)
 
     # 3) 车身：垂直渐变（顶亮底暗）
     top_f = 1.30
@@ -170,23 +198,66 @@ def get_tank_sprite(color, direction, frame=0):
         f = top_f + (bot_f - top_f) * (yy - body_rect.top) / max(1, body_h)
         pygame.draw.line(surf, shade(color, f),
                          (body_rect.left, yy), (body_rect.right - 1, yy))
-    # 车身描边
-    pygame.draw.rect(surf, (0, 0, 0), body_rect, width=2, border_radius=4)
+    # 车身描边（KZY 用金色 2px 描边）
+    if style == TANK_STYLE_KZY:
+        pygame.draw.rect(surf, COLOR_GOLD, body_rect, width=2, border_radius=4)
+    else:
+        pygame.draw.rect(surf, (0, 0, 0), body_rect, width=2, border_radius=4)
     # 顶部一条高光（金属反光）
     pygame.draw.line(surf, shade(color, 1.5),
                      (body_rect.left + 3, body_rect.top + 2),
                      (body_rect.right - 4, body_rect.top + 2), 2)
 
+    # 3b) 所有坦克：侧边装甲条纹（2px，颜色比主体深 30%）
+    stripe_color = shade(color, 0.70)
+    inset = 3
+    pygame.draw.line(surf, stripe_color,
+                     (body_rect.left + inset, body_rect.top + body_h * 0.30),
+                     (body_rect.left + inset, body_rect.bottom - body_h * 0.30), 2)
+    pygame.draw.line(surf, stripe_color,
+                     (body_rect.right - inset, body_rect.top + body_h * 0.30),
+                     (body_rect.right - inset, body_rect.bottom - body_h * 0.30), 2)
+
     # 4) 炮塔（径向高光：底圆 + 左上偏移亮圆）
-    turret_r = int(TANK_SIZE * 0.32)
+    turret_r = int(TANK_SIZE * 0.30)
     pygame.draw.circle(surf, shade(color, 0.9), (cx, cy), turret_r)
     pygame.draw.circle(surf, (0, 0, 0), (cx, cy), turret_r, width=1)
     pygame.draw.circle(surf, shade(color, 1.4),
                        (cx - turret_r * 0.3, cy - turret_r * 0.3),
                        max(2, int(turret_r * 0.55)))
+    # 风格化炮塔细节
+    if style == TANK_STYLE_HEAVY:
+        # 炮塔上方小型矩形（机枪/传感器）
+        rec_w, rec_h = 10, 7
+        pygame.draw.rect(surf, shade(color, 0.7),
+                         (cx - rec_w // 2, cy - turret_r - rec_h + 2, rec_w, rec_h),
+                         border_radius=2)
+        pygame.draw.rect(surf, (0, 0, 0),
+                         (cx - rec_w // 2, cy - turret_r - rec_h + 2, rec_w, rec_h),
+                         width=1, border_radius=2)
+    elif style == TANK_STYLE_SNIPER:
+        # 炮塔白色 1px 十字准星线（仅水平 + 垂直短线段，不冲出炮塔）
+        qu = max(2, int(turret_r * 0.5))
+        pygame.draw.line(surf, (235, 235, 240), (cx - qu, cy), (cx + qu, cy), 1)
+        pygame.draw.line(surf, (235, 235, 240), (cx, cy - qu), (cx, cy + qu), 1)
+    elif style == TANK_STYLE_KZY:
+        # 炮塔上三角标志（▲）金色
+        t = turret_r * 0.8
+        pygame.draw.polygon(surf, COLOR_GOLD, [
+            (cx, cy - t),
+            (cx + t * 0.86, cy + t * 0.5),
+            (cx - t * 0.86, cy + t * 0.5),
+        ])
 
-    # 5) 炮管（按方向）
-    bw, bh = 6, 16
+    # 5) 炮管（按方向）；风格化长度/粗细
+    if style == TANK_STYLE_SCOUT:
+        bw, bh = 4, 20          # 细长
+    elif style == TANK_STYLE_HEAVY:
+        bw, bh = 9, 12          # 粗短
+    elif style == TANK_STYLE_SNIPER:
+        bw, bh = 6, 24          # 极长
+    else:
+        bw, bh = 6, 16
     d = _DIR_BARREL.get(direction, (0, -1))
     barrel_color = shade(color, 0.85)
     if d[1] != 0:  # 上/下
@@ -204,10 +275,12 @@ def get_tank_sprite(color, direction, frame=0):
     return surf
 
 
-def draw_tank(screen, sx, sy, color, direction, hit_flash=0.0, anim_frame=0):
+def draw_tank(screen, sx, sy, color, direction, hit_flash=0.0, anim_frame=0,
+              style=TANK_STYLE_STANDARD):
     """在屏幕坐标 (sx, sy)（坦克中心点）绘制预烘焙坦克 Sprite。
-    hit_flash∈[0,1]：命中时叠加白光脉冲；anim_frame：履带滚动动画帧（0/1）。"""
-    surf = get_tank_sprite(color, direction, anim_frame)
+    hit_flash∈[0,1]：命中时叠加白光脉冲；anim_frame：履带滚动动画帧（0/1）。
+    style：视觉风格标识（仅视觉，不影响碰撞）。"""
+    surf = get_tank_sprite(color, direction, anim_frame, style)
     S = surf.get_width()
     screen.blit(surf, (int(sx - S // 2), int(sy - S // 2)))
     if hit_flash > 0:

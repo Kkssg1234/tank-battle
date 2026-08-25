@@ -7,6 +7,7 @@ import random
 from constants import *
 from level_config import TOTAL_LEVELS, get_level_config
 from ui_utils import (Button, draw_text, draw_bg, draw_corner_logo, draw_panel,
+                      draw_glass_panel,
                       draw_tank_icon, draw_card, draw_badge, draw_progress_bar,
                       draw_glow_accent, draw_divider,
                       draw_hearts, draw_lock, draw_shield, draw_warning)
@@ -641,44 +642,59 @@ class SinglePlayScreen:
         # ---- 游戏世界 ----
         w.draw(screen, ARENA_X, ARENA_Y, fonts)
 
-        # ---- 顶部 HUD ----
-        hud_y = 20
-        # 血量（心形矢量图标，无 emoji 依赖，网页/本地一致显示）
-        hp_label = "血量"
-        draw_text(screen, hp_label, 60, hud_y + 8, fonts, FONT_M, COLOR_RED)
-        hlw = fonts[FONT_M].size(hp_label)[0]
-        hx0 = 60 + hlw + 8
-        draw_hearts(screen, hx0, hud_y + 4, max(0, player.hp),
-                    player.max_hp, COLOR_RED, size=20, gap=4)
-        if player.hp <= 0:
-            draw_text(screen, "阵亡", hx0 + player.max_hp * (20 + 4) + 6,
-                      hud_y + 8, fonts, FONT_S, COLOR_GRAY)
+        # ---- 顶部 HUD（科幻战争终端：玻璃面板） ----
+        hud_y = 12
 
-        # 当前坦克
-        draw_text(screen, tank_name, 280, hud_y + 8,
-                  fonts, FONT_M, tank_info["color"])
+        # 左面板：能量条血量 + 坦克名
+        lp_x, lp_y, lp_w, lp_h = 20, hud_y, 260, 60
+        draw_glass_panel(screen, lp_x, lp_y, lp_w, lp_h, alpha=200)
+        draw_text(screen, "装甲能量", lp_x + 12, lp_y + 8, fonts, FONT_XS, COLOR_LIGHT_GRAY)
+        hp_ratio = max(0.0, min(1.0, player.hp / max(1, player.max_hp)))
+        bar_x, bar_y, bar_w, bar_h = lp_x + 12, lp_y + 30, 120, 10
+        ebar_bg = pygame.Surface((bar_w, bar_h), pygame.SRCALPHA)
+        ebar_bg.fill((60, 20, 20))
+        screen.blit(ebar_bg, (bar_x, bar_y))
+        # 渐变填充（红→金，按血量比例）
+        fg_surf = pygame.Surface((bar_w, bar_h), pygame.SRCALPHA)
+        for i in range(bar_w):
+            t = i / max(1, bar_w)
+            r = int(COLOR_RED[0] + (COLOR_GOLD[0] - COLOR_RED[0]) * t)
+            g = int(COLOR_RED[1] + (COLOR_GOLD[1] - COLOR_RED[1]) * t)
+            b = int(COLOR_RED[2] + (COLOR_GOLD[2] - COLOR_RED[2]) * t)
+            fg_surf.fill((r, g, b, 255), (i, 0, 1, bar_h))
+        screen.blit(fg_surf, (bar_x, bar_y), (0, 0, int(bar_w * hp_ratio), bar_h))
+        pygame.draw.rect(screen, COLOR_BTN_BORDER, (bar_x, bar_y, bar_w, bar_h), width=1, border_radius=3)
+        draw_text(screen, f"{max(0, player.hp)}/{player.max_hp}",
+                  bar_x + bar_w + 8, bar_y - 2, fonts, FONT_XS, COLOR_WHITE)
+        draw_text(screen, tank_name, lp_x + 12, lp_y + 44,
+                  fonts, FONT_S, tank_info["color"])
 
-        # 关卡信息 & 剩余敌人
+        # 中面板：关卡 + 剩余敌人
+        mp_w, mp_h = 240, 60
+        mp_x = (SCREEN_WIDTH - mp_w) // 2
+        draw_glass_panel(screen, mp_x, hud_y, mp_w, mp_h, alpha=200)
         remaining = w.remaining_enemies()
-        draw_text(screen, f"第 {level} 关   剩余 {remaining}",
-                  SCREEN_WIDTH // 2, hud_y + 8, fonts, FONT_M, COLOR_CYAN, center=True)
+        draw_text(screen, f"第 {level} 关", mp_x + mp_w // 2, hud_y + 12,
+                  fonts, FONT_L, COLOR_CYAN, center=True)
+        draw_text(screen, f"剩余 {remaining:02d}",
+                  mp_x + mp_w // 2, hud_y + 38, fonts, FONT_S, COLOR_WHITE, center=True)
 
-        # 得分（右对齐）
-        score_surf = fonts[FONT_M].render(f"得分: {w.score}", True, COLOR_YELLOW)
-        screen.blit(score_surf, (SCREEN_WIDTH - 20 - score_surf.get_width(), hud_y + 8))
+        # 右面板：得分（右对齐）
+        rp_w, rp_h = 200, 60
+        rp_x = SCREEN_WIDTH - rp_w - 20
+        draw_glass_panel(screen, rp_x, hud_y, rp_w, rp_h, alpha=200)
+        draw_text(screen, "得分", rp_x + rp_w - 12, hud_y + 10,
+                  fonts, FONT_XS, COLOR_LIGHT_GRAY, center=False)
+        score_surf = fonts[FONT_M].render(f"{w.score}", True, COLOR_GOLD)
+        screen.blit(score_surf, (rp_x + rp_w - 12 - score_surf.get_width(), hud_y + 26))
 
-        # 道具栏（左下角：彩色小方块图标 + 名称 + 倒计时条）——叠加版
+        # 底部道具栏（图标 + 进度条，玻璃质感小面板）——叠加版
         active = player.get_active_powerups()
         shield_on = player.shield_active
         if active:
-            # 名称拼接（叠加显示 "+" 连接，金色）；单道具用本色
             names = [POWERUP_NAMES.get(t, str(t)) for t in active]
             buff_name = "+".join(names)
-            if len(active) > 1:
-                buff_color = COLOR_GOLD
-            else:
-                buff_color = POWERUP_COLORS.get(active[0], COLOR_WHITE)
-            # 剩余时间：显示限时道具中最短的；全部 perma 才显示 ∞
+            buff_color = COLOR_GOLD if len(active) > 1 else POWERUP_COLORS.get(active[0], COLOR_WHITE)
             remains = [player.powerup_buffs.get(t, 0.0) for t in active]
             timed = [r for r in remains if r < PERMA_BUFF_THRESHOLD]
             if timed:
@@ -691,46 +707,55 @@ class SinglePlayScreen:
         else:
             buff_name, buff_color = "无", COLOR_GRAY
             remain_txt, ratio = "", 0.0
-        # 护盾单独显示（次数型，不计时）；只要 shield_active 为 True 就显示盾牌图标
         if shield_on:
             buff_name = (buff_name + " +护盾") if buff_name != "无" else "护盾"
 
-        # 彩色小方块图标（激活道具）+ 盾牌图标（护盾）
-        item_y = SCREEN_HEIGHT - 38
-        bar_x, bar_y, bar_w, bar_h = 60, SCREEN_HEIGHT - 14, 140, 7
-        icon_x = 60
-        for t in active[:3]:  # 最多画 3 个色块，避免过长
+        # 道具图标行（40x40 玻璃小面板 + 14x14 彩色方块 + 细进度条）
+        ib_x, ib_y = 20, SCREEN_HEIGHT - 56
+        icon_size = 40
+        for t in active[:3]:
+            draw_glass_panel(screen, ib_x, ib_y, icon_size, icon_size, alpha=200)
             pygame.draw.rect(screen, POWERUP_COLORS.get(t, COLOR_WHITE),
-                             (icon_x, item_y, 14, 14), border_radius=3)
-            icon_x += 18
+                             (ib_x + 13, ib_y + 13, 14, 14), border_radius=3)
+            ib_x += icon_size + 8
         if shield_on:
-            draw_shield(screen, icon_x, item_y - 1, 16, COLOR_YELLOW)
-            icon_x += 20
-        text_x = icon_x + 2
+            draw_glass_panel(screen, ib_x, ib_y, icon_size, icon_size, alpha=200)
+            draw_shield(screen, ib_x + 12, ib_y + 11, 16, COLOR_GOLD)
+            ib_x += icon_size + 8
+        # 名称 + 倒计时条
+        text_x = ib_x + 2
         draw_text(screen, f"{buff_name} {remain_txt}".strip(),
-                  text_x, item_y, fonts, FONT_S, buff_color)
-
-        # 倒计时条（绿→红渐变：剩余越多越绿，越少越红）
-        pygame.draw.rect(screen, (40, 40, 50), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+                  text_x, ib_y + 4, fonts, FONT_S, buff_color)
+        pbar_x, pbar_y, pbar_w, pbar_h = ib_x, ib_y + 26, 100, 6
+        pbg = pygame.Surface((pbar_w, pbar_h), pygame.SRCALPHA)
+        pbg.fill((40, 40, 50))
+        screen.blit(pbg, (pbar_x, pbar_y))
         if ratio > 0:
-            cr = int(220 * (1 - ratio))   # 红分量：时间越少越红
-            cg = int(190 * ratio)          # 绿分量：时间越多越绿
+            cr = int(220 * (1 - ratio)); cg = int(190 * ratio)
             pygame.draw.rect(screen, (cr, cg, 36),
-                             (bar_x, bar_y, int(bar_w * ratio), bar_h), border_radius=3)
+                             (pbar_x, pbar_y, int(pbar_w * ratio), pbar_h), border_radius=3)
 
         # 关卡主题提示（黑底白字主题）
         draw_text(screen, "关卡主题: 浪尖儿学生社区",
                   SCREEN_WIDTH // 2, 60, fonts, FONT_S,
                   COLOR_WHITE, center=True)
 
-        # 友军伤害提示（矢量三角警告图标 + 文本）
-        tip_color = COLOR_ORANGE if int(self.time * 2) % 2 == 0 else COLOR_YELLOW
+        # 友军伤害提示（中央上部橙红闪烁警告条；矢量三角 warning 图标 + 文本）
+        tip_blink = (int(self.time * 4) % 2) == 0
+        tip_color = COLOR_ACCENT if tip_blink else COLOR_ORANGE
         tip = FRIENDLY_FIRE_TIP
-        tw = fonts[FONT_XS].size(tip)[0]
+        tw = fonts[FONT_S].size(tip)[0]
         cx_tip = ARENA_X + ARENA_W // 2
-        draw_warning(screen, cx_tip - tw / 2 - 18, ARENA_Y - 16, 12, tip_color)
-        draw_text(screen, tip, cx_tip, ARENA_Y - 14,
-                  fonts, FONT_XS, tip_color, center=True)
+        warn_w = tw + 56
+        warn_x = cx_tip - warn_w // 2
+        warn_y = ARENA_Y - 20
+        warn_surf = pygame.Surface((warn_w, 22), pygame.SRCALPHA)
+        warn_surf.fill((tip_color[0], tip_color[1], tip_color[2], 80))
+        screen.blit(warn_surf, (warn_x, warn_y))
+        pygame.draw.rect(screen, tip_color, (warn_x, warn_y, warn_w, 22), width=1, border_radius=4)
+        draw_warning(screen, warn_x + 14, warn_y + 5, 12, tip_color)
+        draw_text(screen, tip, cx_tip + 12, warn_y + 11,
+                  fonts, FONT_S, tip_color, center=True)
 
         # 底部按钮 / 操作提示
         self.back_btn.draw(screen, fonts)
@@ -900,7 +925,8 @@ class P2TankSelectScreen:
             icon_x = x + (w - icon_size) // 2
             icon_y = y + 16
             draw_tank_icon(screen, icon_x, icon_y, info["color"],
-                           size=icon_size, unlocked=is_unlocked)
+                           size=icon_size, unlocked=is_unlocked,
+                           style=TANK_STYLE_BY_NAME.get(name, TANK_STYLE_STANDARD))
 
             # 名称
             name_color = info["color"] if is_unlocked else COLOR_GRAY
@@ -1102,10 +1128,10 @@ class TwoPlayScreen:
         # ---- 顶部 HUD ----
         hud_y = 18
 
-        # 玩家 1 HUD（左上）
+        # 玩家 1 HUD（左上，玻璃面板）
         p1 = w.player1
         p1_color = TANK_DATA.get(p1.tank_name, {}).get("color", COLOR_GREEN)
-        draw_panel(screen, 15, hud_y, 280, 70, alpha=200)
+        draw_glass_panel(screen, 15, hud_y, 280, 70, alpha=200)
         draw_text(screen, "P1", 30, hud_y + 8, fonts, FONT_M, p1_color)
         draw_hearts(screen, 30, hud_y + 34, max(0, p1.hp), p1.max_hp,
                     COLOR_RED, size=16, gap=3)
@@ -1115,10 +1141,10 @@ class TwoPlayScreen:
             name_x += fonts[FONT_S].size("阵亡")[0] + 8
         draw_text(screen, p1.tank_name, name_x, hud_y + 38, fonts, FONT_S, COLOR_WHITE)
 
-        # 玩家 2 HUD（右上）
+        # 玩家 2 HUD（右上，玻璃面板）
         p2 = w.player2
         p2_color = TANK_DATA.get(p2.tank_name, {}).get("color", COLOR_BLUE)
-        draw_panel(screen, SCREEN_WIDTH - 295, hud_y, 280, 70, alpha=200)
+        draw_glass_panel(screen, SCREEN_WIDTH - 295, hud_y, 280, 70, alpha=200)
         draw_text(screen, "P2", SCREEN_WIDTH - 280, hud_y + 8, fonts, FONT_M, p2_color)
         draw_hearts(screen, SCREEN_WIDTH - 280, hud_y + 34, max(0, p2.hp),
                     p2.max_hp, COLOR_RED, size=16, gap=3)
@@ -1128,27 +1154,39 @@ class TwoPlayScreen:
             name_x2 += fonts[FONT_S].size("阵亡")[0] + 8
         draw_text(screen, p2.tank_name, name_x2, hud_y + 38, fonts, FONT_S, COLOR_WHITE)
 
-        # 中间信息
+        # 中间信息（玻璃面板）
+        ci_w, ci_h = 360, 40
+        ci_x = (SCREEN_WIDTH - ci_w) // 2
+        draw_glass_panel(screen, ci_x, hud_y + 14, ci_w, ci_h, alpha=200)
         if w.mode == "coop":
-            draw_text(screen, f"{mode_txt}   |   剩余 {w.remaining_enemies()}   |   得分 {w.score}",
-                      SCREEN_WIDTH // 2, hud_y + 22, fonts, FONT_M, COLOR_CYAN, center=True)
+            info = f"{mode_txt}  |  剩余 {w.remaining_enemies()}  |  得分 {w.score}"
+            draw_text(screen, info, SCREEN_WIDTH // 2, hud_y + 34,
+                      fonts, FONT_S, COLOR_CYAN, center=True)
         else:
-            vs_text = "击败对方即获胜！"
-            draw_text(screen, f"{mode_txt}   |   {vs_text}",
-                      SCREEN_WIDTH // 2, hud_y + 22, fonts, FONT_M, COLOR_ORANGE, center=True)
+            info = f"{mode_txt}  |  击败对方即获胜！"
+            draw_text(screen, info, SCREEN_WIDTH // 2, hud_y + 34,
+                      fonts, FONT_S, COLOR_ORANGE, center=True)
 
         # 道具栏（左下/右下分别显示）
         self._draw_player_item(screen, p1, 60, SCREEN_HEIGHT - 35, fonts)
         self._draw_player_item(screen, p2, SCREEN_WIDTH - 220, SCREEN_HEIGHT - 35, fonts)
 
-        # 友军伤害提示（矢量三角警告图标 + 文本）
-        tip_color = COLOR_ORANGE if int(self.time * 2) % 2 == 0 else COLOR_YELLOW
+        # 友军伤害提示（中央上部橙红闪烁警告条；矢量三角 warning 图标 + 文本）
+        tip_blink = (int(self.time * 4) % 2) == 0
+        tip_color = COLOR_ACCENT if tip_blink else COLOR_ORANGE
         tip = FRIENDLY_FIRE_TIP
-        tw = fonts[FONT_XS].size(tip)[0]
+        tw = fonts[FONT_S].size(tip)[0]
         cx_tip = ARENA_X + ARENA_W // 2
-        draw_warning(screen, cx_tip - tw / 2 - 18, ARENA_Y - 16, 12, tip_color)
-        draw_text(screen, tip, cx_tip, ARENA_Y - 14,
-                  fonts, FONT_XS, tip_color, center=True)
+        warn_w = tw + 56
+        warn_x = cx_tip - warn_w // 2
+        warn_y = ARENA_Y - 20
+        warn_surf = pygame.Surface((warn_w, 22), pygame.SRCALPHA)
+        warn_surf.fill((tip_color[0], tip_color[1], tip_color[2], 80))
+        screen.blit(warn_surf, (warn_x, warn_y))
+        pygame.draw.rect(screen, tip_color, (warn_x, warn_y, warn_w, 22), width=1, border_radius=4)
+        draw_warning(screen, warn_x + 14, warn_y + 5, 12, tip_color)
+        draw_text(screen, tip, cx_tip + 12, warn_y + 11,
+                  fonts, FONT_S, tip_color, center=True)
 
         # 底部操作提示
         draw_text(screen, "P1: WASD+空格   P2: 鼠标移动+左键   ESC返回选择",
@@ -1165,6 +1203,11 @@ class TwoPlayScreen:
         """绘制单个玩家的道具状态（叠加版：显示当前激活集合）"""
         active = player.get_active_powerups()
         shield_on = player.shield_active
+        # 玻璃底（约 160x30）
+        if active or shield_on:
+            gw, gh = 160, 28
+            gx = min(x, SCREEN_WIDTH - gw - 4)
+            draw_glass_panel(screen, gx, y - 4, gw, gh, alpha=200)
         if not active and not shield_on:
             draw_text(screen, "无", x, y, fonts, FONT_S, COLOR_GRAY)
             return
@@ -1329,7 +1372,9 @@ class GarageScreen:
             icon_size = 72
             icon_x = x + (w - icon_size) // 2
             icon_y = y + 18
-            draw_tank_icon(screen, icon_x, icon_y, info["color"], size=icon_size, unlocked=unlocked)
+            draw_tank_icon(screen, icon_x, icon_y, info["color"], size=icon_size,
+                           unlocked=unlocked,
+                           style=TANK_STYLE_BY_NAME.get(name, TANK_STYLE_STANDARD))
 
             # 坦克名称
             name_color = info["color"] if unlocked else COLOR_GRAY

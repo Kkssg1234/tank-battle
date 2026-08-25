@@ -309,35 +309,79 @@ def draw_glass_panel(screen, x, y, w, h, alpha=200):
                      width=1, border_radius=UI_RADIUS_MD)
 
 
-def draw_tank_icon(screen, x, y, color, size=48, unlocked=True):
-    """绘制简易坦克图标（剪影）"""
+def draw_tank_icon(screen, x, y, color, size=48, unlocked=True, style=TANK_STYLE_STANDARD):
+    """绘制简易坦克图标（剪影），按 style 与游戏内 Sprite 同步差异化。"""
     cx, cy = x + size // 2, y + size // 2
     if not unlocked:
         color = COLOR_DARK_GRAY
 
-    # 坦克车身
-    body_w, body_h = int(size * 0.7), int(size * 0.45)
-    body_rect = pygame.Rect(cx - body_w // 2, cy - body_h // 2 + int(size * 0.08),
-                            body_w, body_h)
+    # 车身尺寸风格化（仅视觉，不改动任何逻辑/碰撞）
+    if style == TANK_STYLE_SCOUT:
+        body_w, body_h = int(size * 0.62), int(size * 0.52)
+    elif style == TANK_STYLE_HEAVY:
+        body_w, body_h = int(size * 0.82), int(size * 0.40)
+    else:
+        body_w, body_h = int(size * 0.70), int(size * 0.45)
+    body_y = cy - body_h // 2 + int(size * 0.08)
+    body_rect = pygame.Rect(cx - body_w // 2, body_y, body_w, body_h)
+
+    # 履带（上下两条）
+    track_h = int(size * 0.12)
+    track_color = COLOR_DARK_GRAY if unlocked else (40, 40, 40)
+    for ty in (body_y - track_h, body_y + body_h):
+        pygame.draw.rect(screen, track_color,
+                         (cx - body_w // 2 - int(size * 0.05), ty,
+                          body_w + int(size * 0.1), track_h), border_radius=3)
+
+    # 车身主体
     pygame.draw.rect(screen, color, body_rect, border_radius=4)
 
-    # 履带
-    track_h = int(size * 0.12)
-    pygame.draw.rect(screen, COLOR_DARK_GRAY if unlocked else (40, 40, 40),
-                     (cx - body_w // 2 - int(size * 0.05), cy - body_h // 2 + int(size * 0.08) - track_h,
-                      body_w + int(size * 0.1), track_h), border_radius=3)
-    pygame.draw.rect(screen, COLOR_DARK_GRAY if unlocked else (40, 40, 40),
-                     (cx - body_w // 2 - int(size * 0.05), cy + body_h // 2 + int(size * 0.08),
-                      body_w + int(size * 0.1), track_h), border_radius=3)
+    # 侧边装甲条纹（深 30%）
+    stripe = (int(color[0] * 0.70), int(color[1] * 0.70), int(color[2] * 0.70))
+    inset = max(2, int(size * 0.06))
+    pygame.draw.line(screen, stripe,
+                     (body_rect.left + inset, body_rect.top + body_h * 0.30),
+                     (body_rect.left + inset, body_rect.bottom - body_h * 0.30), 2)
+    pygame.draw.line(screen, stripe,
+                     (body_rect.right - inset, body_rect.top + body_h * 0.30),
+                     (body_rect.right - inset, body_rect.bottom - body_h * 0.30), 2)
+
+    # KZY：车身金色 2px 描边
+    if style == TANK_STYLE_KZY:
+        pygame.draw.rect(screen, COLOR_GOLD, body_rect, width=2, border_radius=4)
 
     # 炮塔
     turret_r = int(size * 0.18)
-    pygame.draw.circle(screen, color, (cx, cy - int(size * 0.05)), turret_r)
+    tcx, tcy = cx, cy - int(size * 0.05)
+    pygame.draw.circle(screen, color, (tcx, tcy), turret_r)
 
-    # 炮管
-    barrel_w, barrel_h = int(size * 0.08), int(size * 0.35)
+    # 炮塔风格化细节
+    if style == TANK_STYLE_HEAVY:
+        rec_w, rec_h = int(size * 0.22), int(size * 0.15)
+        pygame.draw.rect(screen, (int(color[0] * 0.70), int(color[1] * 0.70), int(color[2] * 0.70)),
+                         (tcx - rec_w // 2, tcy - turret_r - rec_h + int(size * 0.04), rec_w, rec_h),
+                         border_radius=2)
+    elif style == TANK_STYLE_SNIPER:
+        qu = max(2, int(turret_r * 0.5))
+        pygame.draw.line(screen, (235, 235, 240), (tcx - qu, tcy), (tcx + qu, tcy), 1)
+        pygame.draw.line(screen, (235, 235, 240), (tcx, tcy - qu), (tcx, tcy + qu), 1)
+    elif style == TANK_STYLE_KZY:
+        t = turret_r * 0.8
+        pygame.draw.polygon(screen, COLOR_GOLD, [
+            (tcx, tcy - t), (tcx + t * 0.86, tcy + t * 0.5), (tcx - t * 0.86, tcy + t * 0.5),
+        ])
+
+    # 炮管（按风格定长/粗）
+    if style == TANK_STYLE_SCOUT:
+        barrel_w, barrel_h = int(size * 0.07), int(size * 0.42)
+    elif style == TANK_STYLE_HEAVY:
+        barrel_w, barrel_h = int(size * 0.16), int(size * 0.22)
+    elif style == TANK_STYLE_SNIPER:
+        barrel_w, barrel_h = int(size * 0.10), int(size * 0.48)
+    else:
+        barrel_w, barrel_h = int(size * 0.08), int(size * 0.35)
     pygame.draw.rect(screen, color,
-                     (cx - barrel_w // 2, cy - int(size * 0.05) - barrel_h,
+                     (tcx - barrel_w // 2, tcy - barrel_h,
                       barrel_w, barrel_h), border_radius=2)
 
 

@@ -26,6 +26,8 @@ class BaseTank:
         self.max_hp = hp
         self.speed_val = float(speed_val)  # 像素/帧（按60FPS换算，直接乘dt）
         self.owner = owner  # player / enemy / neutral
+        # 视觉风格标识（仅影响 draw，不改变碰撞/逻辑）。默认通用，子类/外部按车型赋值。
+        self.tank_style = TANK_STYLE_STANDARD
 
         # 方向
         self.direction = DIR_UP
@@ -265,7 +267,7 @@ class BaseTank:
         # 预烘焙坦克精灵（含渐变 / 投影 / 描边 / 炮管高光），命中时叠加白闪；
         # 履带齿纹按 track_anim 相位切换两帧，形成滚动动画
         draw_tank(screen, sx, sy, self.color, self.direction, self.hit_flash,
-                  anim_frame=int(self.track_anim) & 1)
+                  anim_frame=int(self.track_anim) & 1, style=self.tank_style)
 
         # 护盾圈（动态绘制，薄环）
         if self.shield_active:
@@ -281,6 +283,8 @@ class PlayerTank(BaseTank):
         super().__init__(x, y, info["color"], info["hp"],
                          info["speed_val"] * TANK_SPEED_SCALE, owner="player")
         self.tank_name = tank_name
+        # 视觉风格：按车型映射到差异化 style（敌人/未匹配车保持 standard）
+        self.tank_style = TANK_STYLE_BY_NAME.get(tank_name, TANK_STYLE_STANDARD)
         # 初始道具（持续整局，以 PERMA_BUFF_THRESHOLD 记入叠加集合，永久生效）
         init_item = info.get("init_item")
         self.default_powerup = init_item if init_item else POWERUP_NONE

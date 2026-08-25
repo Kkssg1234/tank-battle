@@ -157,6 +157,20 @@ TANK_DATA = {
 # 坦克列表顺序
 TANK_ORDER = ["轻型侦察车", "重装突击车", "激光狙击车", "KZY 终极战车", "跳弹游骑兵"]
 
+# ===== 坦克视觉风格标识（2026-08-25 钢铁科技风差异化）=====
+# 仅影响 draw 视觉（车辆外形/炮管/炮塔细节），不改动碰撞框 TANK_SIZE 与任何逻辑。
+TANK_STYLE_STANDARD = "standard"   # 通用（敌人、未匹配玩家车）
+TANK_STYLE_SCOUT = "scout"         # 轻型侦察车：瘦长、细长炮管
+TANK_STYLE_HEAVY = "heavy"         # 重装突击车：宽大、粗短炮管 + 顶部传感器
+TANK_STYLE_SNIPER = "sniper"       # 激光狙击车：极长炮管 + 炮塔准星
+TANK_STYLE_KZY = "kzy"             # KZY 终极战车：金描边 + 三角标志 + 锯齿履带
+TANK_STYLE_BY_NAME = {
+    "轻型侦察车": TANK_STYLE_SCOUT,
+    "重装突击车": TANK_STYLE_HEAVY,
+    "激光狙击车": TANK_STYLE_SNIPER,
+    "KZY 终极战车": TANK_STYLE_KZY,
+}
+
 # ===== 道具数据 =====
 # 注：icon 字段为内部标识（非渲染字形），UI 中道具图标由 screens.py 用 pygame 彩色圆点绘制，
 # 不使用 emoji（pygame Monochrome 字体无法渲染 emoji，会留下空格占位）。
