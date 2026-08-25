@@ -65,8 +65,8 @@ class MenuScreen:
     def _build_buttons(self):
         cx = SCREEN_WIDTH // 2
         bw, bh = 280, 56
-        sy = 260
-        gap = 22
+        sy = 280          # 下移 20px 给"选择游戏模式"提示留空间（钢铁洪流紧凑布局）
+        gap = 16          # 垂直间距 22 → 16，更紧凑
         self.buttons = [
             Button(cx - bw // 2, sy, bw, bh, "单人闯关模式", FONT_L),
             Button(cx - bw // 2, sy + bh + gap, bw, bh, "双人模式", FONT_L),
@@ -115,13 +115,57 @@ class MenuScreen:
 
     def draw(self, screen, fonts):
         draw_bg(screen)
+        cx = SCREEN_WIDTH // 2
 
-        # 标题 - 浮动动画 + 辉光强调（幅度缩小，避免与下方存档条重叠）
+        # ---------- 背景装饰：固定的极淡十字准星（固定种子，不逐帧抖动）----------
+        _rng = random.Random(20260825)
+        for _ in range(4):
+            gx = _rng.randint(40, SCREEN_WIDTH - 40)
+            gy = _rng.randint(40, SCREEN_HEIGHT - 40)
+            gl = 7
+            pygame.draw.line(screen, (40, 40, 45), (gx - gl, gy), (gx + gl, gy), 2)
+            pygame.draw.line(screen, (40, 40, 45), (gx, gy - gl), (gx, gy + gl), 2)
+
+        # 标题 - 浮动 + 呼吸灯辉光（alpha 随时间正弦波动）
         title_y = 92 + math.sin(self.time * 2) * 4
-        draw_glow_accent(screen, SCREEN_WIDTH // 2, title_y, "坦 克 大 战",
-                         fonts, FONT_XXL, COLOR_GOLD)
-        draw_text(screen, "TANK BATTLE", SCREEN_WIDTH // 2, title_y + 70,
-                  fonts, FONT_L, COLOR_CYAN, center=True)
+        title_font = fonts.get(FONT_XXL, fonts[FONT_M])
+        title_surf = title_font.render("坦 克 大 战", True, COLOR_GOLD)
+        breath = 0.85 + 0.15 * math.sin(self.time * 3)   # 0.70 ~ 1.00
+        # 呼吸辉光：四方向偏移的半透明副本（透明度随呼吸同步）
+        glow = title_surf.copy()
+        glow.set_alpha(int(90 * breath))
+        for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
+            screen.blit(glow, glow.get_rect(center=(cx + dx, title_y + dy)))
+        # 实色标题（呼吸明暗）
+        title_surf.set_alpha(int(255 * breath))
+        screen.blit(title_surf, title_surf.get_rect(center=(cx, title_y)))
+
+        # 金色扫描线：标题宽度内往复扫描（廉价：仅一条 line）
+        tline = title_surf.get_rect(center=(cx, title_y))
+        scan_x = int((self.time * 200) % tline.width)
+        scan_y = title_y + 40
+        pygame.draw.line(screen, COLOR_GOLD,
+                         (tline.left, scan_y), (tline.left + scan_x, scan_y), 2)
+
+        # 副标题 TANK BATTLE + 两侧矢量 ◆ 菱形（COLOR_CYAN）
+        sub_y = title_y + 70
+        sub_font = fonts.get(FONT_L, fonts[FONT_M])
+        sub_surf = sub_font.render("TANK BATTLE", True, COLOR_CYAN)
+        sub_w = sub_surf.get_width()
+        sub_rect = sub_surf.get_rect(center=(cx, sub_y))
+        screen.blit(sub_surf, sub_rect)
+        diamond_s = 12
+        d_off = 18
+        for dx in (-(sub_w // 2 + d_off + diamond_s // 2), (sub_w // 2 + d_off + diamond_s // 2)):
+            dcx = cx + dx
+            dcy = sub_y
+            pygame.draw.polygon(screen, COLOR_CYAN, [
+                (dcx, dcy - diamond_s // 2),
+                (dcx + diamond_s // 2, dcy),
+                (dcx, dcy + diamond_s // 2),
+                (dcx - diamond_s // 2, dcy),
+            ])
+
         draw_text(screen, "浪尖儿大学生社区 · 竞赛附加题", SCREEN_WIDTH // 2, title_y + 112,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
 
@@ -134,8 +178,22 @@ class MenuScreen:
         draw_text(screen, info, SCREEN_WIDTH // 2, 240,
                   fonts, FONT_S, COLOR_YELLOW, center=True)
 
+        # 按钮组上方提示
+        draw_text(screen, "选择游戏模式", SCREEN_WIDTH // 2, 262,
+                  fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
+
         for btn in self.buttons:
             btn.draw(screen, fonts)
+            # hover 按钮右侧白色 ▶ 三角箭头（矢量，跟随 hover，禁用不显示）
+            if btn.hovered and not btn.disabled:
+                ax = btn.rect.right + 12
+                ay = btn.rect.centery
+                s3 = 10
+                pygame.draw.polygon(screen, COLOR_WHITE, [
+                    (ax, ay - s3),
+                    (ax + s3, ay),
+                    (ax, ay + s3),
+                ])
 
         # 网页版：下载存档入口 + 操作提示
         if self.download_btn is not None:
@@ -148,8 +206,10 @@ class MenuScreen:
             draw_text(screen, self.toast, SCREEN_WIDTH // 2, 44,
                       fonts, FONT_M, COLOR_GREEN, center=True)
 
-        # 底部版本号
-        draw_text(screen, "v1.1.0  Core Playable", 20, SCREEN_HEIGHT - 30,
+        # 底部：1px 分割线 + 版本号
+        foot_y = SCREEN_HEIGHT - 40
+        pygame.draw.line(screen, (50, 50, 55), (cx - 100, foot_y), (cx + 100, foot_y), 1)
+        draw_text(screen, "BUILD 2026.08 · COMPETITION EDITION", 20, SCREEN_HEIGHT - 30,
                   fonts, FONT_XS, COLOR_GRAY)
         draw_corner_logo(screen, fonts)
 
