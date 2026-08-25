@@ -412,6 +412,9 @@ class ResultScreen:
         self.new_unlocks = new_unlocks or []
         self.total_battles = total_battles
         self.show_next = bool(victory) and level < TOTAL_LEVELS
+        # 结算动画自计时（首次 draw 才开始，避免创建到显示的延迟）
+        self.time = 0.0
+        self._t0 = None
 
         # 按钮（底部居中排布）
         pbw, pbh = 150, 50
@@ -423,49 +426,101 @@ class ResultScreen:
         self.next_btn.disabled = not self.show_next
 
     def draw(self, screen, fonts):
-        # 半透明黑色背景遮罩（alpha 180）
+        # 自计时：首次 draw 才开始（结算动画时间轴）
+        if self._t0 is None:
+            self._t0 = pygame.time.get_ticks()
+        self.time = (pygame.time.get_ticks() - self._t0) / 1000.0
+        t = self.time
+        cx = SCREEN_WIDTH // 2
+
+        # 1) 径向聚光灯遮罩（中心透、边缘暗，聚焦结算面板）
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180))
+        overlay.fill((0, 0, 0, 160))
         screen.blit(overlay, (0, 0))
+        draw_vignette(screen, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, strength=180)
 
         pw, ph = self.PW, self.PH
         px = (SCREEN_WIDTH - pw) // 2
         py = (SCREEN_HEIGHT - ph) // 2
         draw_glass_panel(screen, px, py, pw, ph, alpha=245)
 
+        # 2) 胜利标题缩放弹性动画（1.5→1.0 + overshoot）+ 矢量奖杯星（替代 emoji）
         if self.victory:
             title, col = "胜 利 !", COLOR_GOLD
         else:
             title, col = "失 败", COLOR_RED
-        draw_glow_accent(screen, px + pw // 2, py + 50, title,
-                         fonts, FONT_XXL, col)
-        draw_text(screen, f"第 {self.level} 关", px + pw // 2, py + 112,
+        if t < 0.5:
+            base = 1.5 - t           # 1.5 → 1.0
+        else:
+            base = 1.0
+        overshoot = math.sin(t * 8) * 0.1 * math.exp(-t * 3)
+        scale = max(0.5, base + overshoot)
+        title_font = fonts.get(FONT_XXL, fonts[FONT_M])
+        title_surf = title_font.render(title, True, col)
+        if abs(scale - 1.0) > 0.01:
+            sw = max(1, int(title_surf.get_width() * scale))
+            sh = max(1, int(title_surf.get_height() * scale))
+            title_surf = pygame.transform.smoothscale(title_surf, (sw, sh))
+        # 矢量奖杯星（标题上方，金色五角星，无 emoji 依赖）
+        if self.victory:
+            _sr = 14
+            _spts = []
+            for _i in range(10):
+                _ang = -math.pi / 2 + _i * math.pi / 5
+                _rr = _sr if _i % 2 == 0 else _sr * 0.45
+                _spts.append((cx + math.cos(_ang) * _rr, py + 34 + math.sin(_ang) * _rr))
+            pygame.draw.polygon(screen, COLOR_GOLD, _spts)
+        screen.blit(title_surf, title_surf.get_rect(center=(cx, py + 52)))
+
+        draw_text(screen, f"第 {self.level} 关", cx, py + 100,
                   fonts, FONT_L, COLOR_CYAN, center=True)
 
-        # 数据行
-        draw_text(screen, f"得分: {self.score}", px + pw // 2, py + 162,
-                  fonts, FONT_M, COLOR_YELLOW, center=True)
-        draw_text(screen, f"击毁: {self.enemies_killed} 辆", px + pw // 2, py + 197,
-                  fonts, FONT_M, COLOR_WHITE, center=True)
-        draw_text(screen, f"用时: {self.time_used} 秒", px + pw // 2, py + 230,
-                  fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
-        if self.total_battles is not None:
-            draw_text(screen, f"累计战斗: {self.total_battles} 场", px + pw // 2, py + 256,
-                      fonts, FONT_S, COLOR_CYAN, center=True)
+        # 3) 三列卡片式数据（得分 / 击毁 / 用时）
+        _cards = [
+            ("得分", str(self.score), COLOR_GOLD),
+            ("击毁", f"{self.enemies_killed} 辆", COLOR_WHITE),
+            ("用时", f"{self.time_used} 秒", COLOR_CYAN),
+        ]
+        _cw, _ch, _cgap = 138, 70, 18
+        _ctot = 3 * _cw + 2 * _cgap
+        _csx = cx - _ctot // 2
+        _cyy = py + 128
+        for _i, (_lbl, _val, _vc) in enumerate(_cards):
+            _cxi = _csx + _i * (_cw + _cgap)
+            draw_glass_panel(screen, _cxi, _cyy, _cw, _ch, alpha=210)
+            draw_text(screen, _val, _cxi + _cw // 2, _cyy + 24,
+                      fonts, FONT_XL, _vc, center=True)
+            draw_text(screen, _lbl, _cxi + _cw // 2, _cyy + 52,
+                      fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
 
-        # 评价（大字 + 辉光强调）
+        # 4) 评价
         grade_col = {
             "S": COLOR_GOLD, "A": COLOR_GREEN,
             "B": COLOR_CYAN, "C": COLOR_LIGHT_GRAY,
         }[self.grade]
-        draw_glow_accent(screen, px + pw // 2, py + 272, f"评价 {self.grade}",
-                         fonts, FONT_XL, grade_col)
+        draw_text(screen, f"评价 {self.grade}", cx, py + 218,
+                  fonts, FONT_XL, grade_col, center=True)
 
-        # 解锁提示（预留：Round 4 传入解锁的坦克名称）
-        for i, name in enumerate(self.new_unlocks):
-            draw_text(screen, f"新坦克解锁: {name}",
-                      px + pw // 2, py + 305 + i * 22,
-                      fonts, FONT_S, COLOR_GREEN, center=True)
+        # 5) 新装备解锁金色横幅（左右滑入动画）
+        if self.new_unlocks:
+            _name = self.new_unlocks[0]
+            _st = min(1.0, t / 0.4)
+            _se = 1 - (1 - _st) ** 3            # ease-out cubic
+            _bw, _bh = 360, 30
+            _bx = cx - _bw // 2 + int((1 - _se) * 240)
+            _by = py + 252
+            _bs = pygame.Surface((_bw, _bh), pygame.SRCALPHA)
+            _bs.fill((COLOR_GOLD[0], COLOR_GOLD[1], COLOR_GOLD[2], 55))
+            screen.blit(_bs, (_bx, _by))
+            pygame.draw.rect(screen, COLOR_GOLD, (_bx, _by, _bw, _bh),
+                             width=1, border_radius=UI_RADIUS_MD)
+            # ▶ 矢量三角
+            _tx, _ty = _bx + 14, _by + _bh // 2
+            pygame.draw.polygon(screen, COLOR_GOLD,
+                                [(_tx, _ty - 6), (_tx + 8, _ty), (_tx, _ty + 6)])
+            draw_text(screen, f"新装备解锁  {_name}",
+                      _bx + _bw // 2 + 6, _by + 4,
+                      fonts, FONT_S, COLOR_GOLD, center=True)
 
         # 按钮行
         self.retry_btn.draw(screen, fonts)
@@ -1257,10 +1312,11 @@ class TwoPlayScreen:
         result = info["result"]
         mode = info["mode"]
 
-        # 遮罩
+        # 径向聚光灯遮罩（中心透、边缘暗，聚焦结算）
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 170))
+        overlay.fill((0, 0, 0, 150))
         screen.blit(overlay, (0, 0))
+        draw_vignette(screen, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, strength=170)
 
         pw, ph = 500, 320
         px, py = (SCREEN_WIDTH - pw) // 2, (SCREEN_HEIGHT - ph) // 2
@@ -1305,6 +1361,22 @@ class TwoPlayScreen:
         draw_text(screen, "快捷键: R 再来一局   M 回主菜单",
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28,
                   fonts, FONT_S, COLOR_YELLOW, center=True)
+
+_BLUEPRINT_GRID = None
+def _get_blueprint_grid():
+    """蓝图网格背景缓存（钢蓝细网格 alpha 30，预烘焙一次复用，零每帧分配）。"""
+    global _BLUEPRINT_GRID
+    if _BLUEPRINT_GRID is None:
+        s = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        gc = (30, 58, 95, 30)
+        gs = 32
+        for _x in range(0, SCREEN_WIDTH, gs):
+            pygame.draw.line(s, gc, (_x, 0), (_x, SCREEN_HEIGHT), 1)
+        for _y in range(0, SCREEN_HEIGHT, gs):
+            pygame.draw.line(s, gc, (0, _y), (SCREEN_WIDTH, _y), 1)
+        _BLUEPRINT_GRID = s
+    return _BLUEPRINT_GRID
+
 
 class GarageScreen:
     """车库界面 - 坦克查看与选择"""
@@ -1366,12 +1438,14 @@ class GarageScreen:
 
     def draw(self, screen, fonts):
         draw_bg(screen)
+        # 蓝图网格背景（卡片后方，钢蓝细网格 alpha 30，预烘焙缓存）
+        screen.blit(_get_blueprint_grid(), (0, 0))
         save = get_save(self.game)
 
         draw_glow_accent(screen, SCREEN_WIDTH // 2, 55, "车 库",
                          fonts, FONT_XXL, COLOR_GOLD)
-        draw_text(screen, f"已解锁 {len(save['unlocked_tanks'])}/{len(TANK_ORDER)}   |   累计战斗 {save['total_battles']} 场   |   最高通关 {save['highest_level_cleared']} 关",
-                  SCREEN_WIDTH // 2, 105, fonts, FONT_S, COLOR_CYAN, center=True)
+        draw_text(screen, f"装备库 · 已认证载具 {len(save['unlocked_tanks'])}/{len(TANK_ORDER)}   |   累计战斗 {save['total_battles']} 场   |   最高通关 {save['highest_level_cleared']} 关",
+                  SCREEN_WIDTH // 2, 105, fonts, FONT_M, COLOR_AMBER, center=True)
 
         # 坦克卡片
         for i, (btn, name) in enumerate(self.tank_buttons):
@@ -1382,6 +1456,12 @@ class GarageScreen:
             # 卡片底（设计系统：浮起卡片 + 选中金色描边）
             btn.disabled = not unlocked
             x, y, w, h = btn.rect.x, btn.rect.y, btn.rect.w, btn.rect.h
+            # 选中发光底座（椭圆，坦克同色 alpha 40）
+            if is_selected and unlocked:
+                _oc = info["color"]
+                _ose = pygame.Surface((w + 20, 40), pygame.SRCALPHA)
+                pygame.draw.ellipse(_ose, (_oc[0], _oc[1], _oc[2], 40), _ose.get_rect())
+                screen.blit(_ose, (x - 10, y + h - 20))
             draw_card(screen, x, y, w, h, highlight=(is_selected and unlocked), alpha=235 if unlocked else 210)
 
             # 坦克图标
@@ -1444,6 +1524,12 @@ class GarageScreen:
                 mask = pygame.Surface((w, h), pygame.SRCALPHA)
                 mask.fill((0, 0, 0, 150))
                 screen.blit(mask, (x, y))
+                # 红色对角线条纹（禁止使用标识，45 度，间隔 8px）
+                _stripes = pygame.Surface((w, h), pygame.SRCALPHA)
+                for _i in range(-h, w + h, 8):
+                    pygame.draw.line(_stripes, (255, 0, 0, 45),
+                                     (_i, 0), (_i + h, h), 2)
+                screen.blit(_stripes, (x, y))
                 tw = fonts[FONT_L].size("未解锁")[0]
                 cx = x + w // 2
                 draw_lock(screen, cx - tw // 2 - 26, y + 30 - 10, 20, COLOR_GRAY)
@@ -1493,6 +1579,29 @@ class GarageScreen:
             else:
                 draw_text(screen, "↓ 点击下方按钮选为出战坦克",
                           panel_x + panel_w - 230, panel_y + 82, fonts, FONT_S, COLOR_YELLOW)
+
+        # 能力条（血量/火力/机动，3 条横向，坦克同色填充）
+        if selected_unlocked:
+            _ab_x = panel_x + 440
+            _ab_y = panel_y + 14
+            _bw, _bhh, _gap = 170, 10, 22
+            _sp_map = {"快": 1.0, "中等": 0.6, "慢": 0.35}
+            _fp_map = {None: 0.3, "scatter": 0.7, "laser": 0.9, "bounce_scatter": 1.0}
+            _stats = [
+                ("血量", selected_info["hp"] / 6.0),
+                ("火力", _fp_map.get(selected_info["init_item"], 0.3)),
+                ("机动", _sp_map.get(selected_info["speed"], 0.5)),
+            ]
+            _sc = selected_info["color"]
+            for _i, (_lbl, _r) in enumerate(_stats):
+                _ay = _ab_y + _i * _gap
+                draw_text(screen, _lbl, _ab_x, _ay, fonts, FONT_XS, COLOR_LIGHT_GRAY)
+                _bx = _ab_x + 40
+                _byy = _ay + 2
+                pygame.draw.rect(screen, (30, 58, 95), (_bx, _byy, _bw, _bhh), border_radius=2)
+                if _r > 0:
+                    pygame.draw.rect(screen, _sc,
+                                     (_bx, _byy, int(_bw * _r), _bhh), border_radius=2)
 
         # 选择按钮（未解锁时禁用）
         self.select_btn.disabled = not selected_unlocked
