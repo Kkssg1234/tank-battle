@@ -122,6 +122,10 @@ class ScreenShake:
 # ---------------------------------------------------------------------------
 _TANK_CACHE = {}
 
+# 连续角度旋转精灵缓存（2026-08-26 操作系统重构：炮塔角为连续弧度，
+# 预烘焙「朝上」精灵后按量化角度旋转，零每帧分配）
+_TANK_ROT_CACHE = {}
+
 # 方向 -> 炮管绘制函数参数 (dx, dy) 偏移
 _DIR_BARREL = {
     0: (0, -1),   # 上
@@ -275,12 +279,30 @@ def get_tank_sprite(color, direction, frame=0, style=TANK_STYLE_STANDARD):
     return surf
 
 
+def get_tank_sprite_rotated(color, style, frame, angle):
+    """返回按连续炮塔角旋转后的坦克精灵（按 3° 量化缓存，零每帧分配）。
+    规范：以「朝上」精灵为基准，旋转量 = -90 - degrees(angle)（已实验标定 pygame 旋转符号）。"""
+    q = int(round(math.degrees(angle) / 3.0) * 3)
+    key = (color, style, int(frame) & 1, q)
+    surf = _TANK_ROT_CACHE.get(key)
+    if surf is not None:
+        return surf
+    base = get_tank_sprite(color, 0, int(frame) & 1, style)  # 规范朝上
+    rot = pygame.transform.rotate(base, -90 - q)
+    _TANK_ROT_CACHE[key] = rot
+    return rot
+
+
 def draw_tank(screen, sx, sy, color, direction, hit_flash=0.0, anim_frame=0,
-              style=TANK_STYLE_STANDARD):
+              style=TANK_STYLE_STANDARD, angle=None):
     """在屏幕坐标 (sx, sy)（坦克中心点）绘制预烘焙坦克 Sprite。
     hit_flash∈[0,1]：命中时叠加白光脉冲；anim_frame：履带滚动动画帧（0/1）。
-    style：视觉风格标识（仅视觉，不影响碰撞）。"""
-    surf = get_tank_sprite(color, direction, anim_frame, style)
+    style：视觉风格标识（仅视觉，不影响碰撞）。
+    angle：连续炮塔角（弧度）；若不传则按 4 方向 direction 绘制（兼容遗留逻辑）。"""
+    if angle is None:
+        surf = get_tank_sprite(color, direction, anim_frame, style)
+    else:
+        surf = get_tank_sprite_rotated(color, style, anim_frame, angle)
     S = surf.get_width()
     screen.blit(surf, (int(sx - S // 2), int(sy - S // 2)))
     if hit_flash > 0:

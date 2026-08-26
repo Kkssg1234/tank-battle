@@ -37,6 +37,9 @@ else:
 DEFAULT_UNLOCKED = ["轻型侦察车"]
 DEFAULT_TANK = "轻型侦察车"
 
+# 排行榜单局上限（仅保留最高分前若干）
+LEADERBOARD_MAX = 10
+
 # 坦克解锁阈值（Round 4 扩展点；record_battle 自动应用）
 # (坦克名, 判定类型 "level"|"battles", 阈值)
 UNLOCK_RULES = [
@@ -59,6 +62,7 @@ class SaveManager:
             "high_scores": {f"level_{i}": 0 for i in range(1, TOTAL_LEVELS + 1)},
             "unlocked_tanks": list(DEFAULT_UNLOCKED),
             "last_selected_tank": DEFAULT_TANK,
+            "leaderboard": [],           # 排行榜：[{name, score, mode, date}]
         }
 
     @staticmethod
@@ -209,6 +213,32 @@ class SaveManager:
     def _apply_unlocks(data):
         """依据当前进度刷新 unlocked_tanks（去重、保留顺序）。"""
         data["unlocked_tanks"] = SaveManager.check_unlocks(data)
+
+    @staticmethod
+    def record_leaderboard(data, name, score, mode):
+        """记录一条排行榜成绩（name/score/mode），原地修改并返回 data。
+        按分数降序保留前 LEADERBOARD_MAX 条。调用方需自行 SaveManager.save() 落盘。"""
+        from datetime import datetime
+        board = data.setdefault("leaderboard", [])
+        entry = {
+            "name": (name or "无名")[:12],
+            "score": int(score),
+            "mode": mode,   # "carnival" / "vs_ai"
+            "date": datetime.now().strftime("%Y-%m-%d"),
+        }
+        board.append(entry)
+        board.sort(key=lambda e: e["score"], reverse=True)
+        data["leaderboard"] = board[:LEADERBOARD_MAX]
+        SaveManager._apply_unlocks(data)
+        return data
+
+    @staticmethod
+    def get_leaderboard(data, mode=None):
+        """返回排行榜（可选按 mode 过滤），按分数降序。"""
+        board = data.get("leaderboard", [])
+        if mode:
+            board = [e for e in board if e.get("mode") == mode]
+        return sorted(board, key=lambda e: e["score"], reverse=True)
 
     @staticmethod
     def select_tank(tank_name):

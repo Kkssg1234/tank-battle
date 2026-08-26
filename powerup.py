@@ -10,6 +10,7 @@ import pygame
 from constants import (
     ARENA_X, ARENA_Y, ARENA_W, ARENA_H,
     TILE_SIZE, TILE_COLS, TILE_ROWS, TILE_EMPTY,
+    CARNIVAL_MAX_BOXES, CARNIVAL_SPAWN_MIN, CARNIVAL_SPAWN_MAX,
 )
 
 # 道具类型常量
@@ -18,15 +19,17 @@ POWERUP_LASER = "laser"
 POWERUP_BOUNCE = "bounce"
 POWERUP_SCATTER = "scatter"
 POWERUP_SHIELD = "shield"
+POWERUP_HEAL = "heal"          # 2026-08-26 新增：恢复道具（即时回血，不入 buff 集合）
 
-# 可被刷出的道具类型
-POWERUP_TYPES = [POWERUP_LASER, POWERUP_BOUNCE, POWERUP_SCATTER, POWERUP_SHIELD]
+# 可被刷出的道具类型（含恢复道具）
+POWERUP_TYPES = [POWERUP_LASER, POWERUP_BOUNCE, POWERUP_SCATTER, POWERUP_SHIELD, POWERUP_HEAL]
 
 POWERUP_COLORS = {
     POWERUP_LASER: (255, 0, 0),      # 红
     POWERUP_BOUNCE: (0, 255, 0),     # 绿
     POWERUP_SCATTER: (0, 100, 255),  # 蓝
     POWERUP_SHIELD: (255, 215, 0),   # 金
+    POWERUP_HEAL: (140, 240, 150),   # 嫩绿（修复包）
 }
 
 POWERUP_NAMES = {
@@ -34,6 +37,7 @@ POWERUP_NAMES = {
     POWERUP_BOUNCE: "弹射弹",
     POWERUP_SCATTER: "散射弹",
     POWERUP_SHIELD: "护盾",
+    POWERUP_HEAL: "修复包",
 }
 
 # 道具箱中央显示的首字母
@@ -42,14 +46,15 @@ POWERUP_LETTERS = {
     POWERUP_BOUNCE: "B",
     POWERUP_SCATTER: "S",
     POWERUP_SHIELD: "H",
+    POWERUP_HEAL: "+",
 }
 
 # 道具持续时间（秒）。perma buff（remaining >= PERMA_BUFF_THRESHOLD）不受计时影响
 POWERUP_DURATION = 10.0
 PERMA_BUFF_THRESHOLD = 999999.0
-# 场上同时存在的最大道具箱数量
+# 场上同时存在的最大道具箱数量（普通模式）
 MAX_BOXES = 3
-# 刷新间隔（秒）随机范围
+# 刷新间隔（秒）随机范围（普通模式）
 SPAWN_INTERVAL_MIN = 10.0
 SPAWN_INTERVAL_MAX = 15.0
 
@@ -108,12 +113,22 @@ class PowerUpBox:
 class PowerUpManager:
     """统一管理者：刷新道具箱、处理玩家拾取、维护玩家 buff 计时"""
 
-    def __init__(self, game_map):
+    def __init__(self, game_map, mode="normal"):
         self.game_map = game_map
         self.active_boxes = []
-        # 首次刷新稍快（6 秒），让玩家很快能看到并体验
-        self.spawn_timer = 6.0
-        self.spawn_interval = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
+        # 狂欢模式：道具箱数量与刷新频率大幅提升
+        if mode == "carnival":
+            self.max_boxes = CARNIVAL_MAX_BOXES
+            self.spawn_min = CARNIVAL_SPAWN_MIN
+            self.spawn_max = CARNIVAL_SPAWN_MAX
+            self.spawn_timer = 2.0
+        else:
+            self.max_boxes = MAX_BOXES
+            self.spawn_min = SPAWN_INTERVAL_MIN
+            self.spawn_max = SPAWN_INTERVAL_MAX
+            # 首次刷新稍快（6 秒），让玩家很快能看到并体验
+            self.spawn_timer = 6.0
+        self.spawn_interval = random.uniform(self.spawn_min, self.spawn_max)
         # 保留出生点（避免道具箱刷在玩家/敌人出生处）
         self._reserved = self._compute_reserved_tiles()
 
@@ -133,12 +148,12 @@ class PowerUpManager:
         # 1. 刷新计时
         self.spawn_timer -= dt
         if self.spawn_timer <= 0:
-            if len(self.active_boxes) < MAX_BOXES:
+            if len(self.active_boxes) < self.max_boxes:
                 pos = self._get_random_empty_pos(game_map)
                 if pos is not None:
                     ptype = random.choice(POWERUP_TYPES)
                     self.active_boxes.append(PowerUpBox(pos[0], pos[1], ptype))
-            self.spawn_timer = random.uniform(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX)
+            self.spawn_timer = random.uniform(self.spawn_min, self.spawn_max)
 
         # 2. 碰撞拾取
         for box in self.active_boxes:
@@ -174,7 +189,12 @@ class PowerUpManager:
                         del p.powerup_buffs[ptype]
 
     def _apply_powerup(self, player, ptype):
-        """给玩家施加道具：统一走 Tank.apply_powerup（叠加版：加入集合独立计时，不清除其它道具）"""
+        """给玩家施加道具：
+        - 恢复道具（heal）：即时回血，不经过 buff 集合；
+        - 其余道具：走 Tank.apply_powerup（叠加版：加入集合独立计时，不清除其它道具）"""
+        if ptype == POWERUP_HEAL:
+            player.heal()
+            return
         player.apply_powerup(ptype)
 
     # -------------------- 绘制 --------------------

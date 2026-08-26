@@ -13,7 +13,8 @@ from ui_utils import (Button, draw_text, draw_bg, draw_corner_logo, draw_panel,
                       draw_hearts, draw_lock, draw_shield, draw_warning)
 from vfx import draw_glow, draw_vignette
 from save_manager import SaveManager, ScoreSystem
-from game_world import GameWorld, TwoPlayerGameWorld
+from game_world import GameWorld, TwoPlayerGameWorld, CarnivalGameWorld
+from controls import ControlState
 from level_manager import LevelManager
 from powerup import (POWERUP_NAMES, POWERUP_COLORS,
                      POWERUP_DURATION, PERMA_BUFF_THRESHOLD)
@@ -52,6 +53,99 @@ def persist_save(game, data):
         pass
 
 
+# ===== 统一操作系统：控制意图构造（人类输入 → ControlState）=====
+# 与 EnemyTank.decide_control 共用 ControlState，保证「AI 与人类操作一致」。
+def build_p1_control(keys, mouse_down, dragging, drag_start, drag_cur, player):
+    """单人/狂欢模式玩家控制：A/D 转向、W/S 沿炮塔前进/后退、鼠标左键开火、
+    鼠标短拖瞄准 / 长拖前进（>DRAG_MOVE_THRESHOLD）。"""
+    ctrl = ControlState()
+    # 键盘转向（A/D 或 方向键左右）
+    if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+        ctrl.turn -= 1
+    if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+        ctrl.turn += 1
+    # 键盘油门（W 前进 / S 后退，沿炮塔方向）
+    kt = 0
+    if keys[pygame.K_w] or keys[pygame.K_UP]:
+        kt += 1
+    if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+        kt -= 1
+    ctrl.throttle = kt
+
+    if dragging and player.alive:
+        dx = drag_cur[0] - drag_start[0]
+        dy = drag_cur[1] - drag_start[1]
+        d = math.hypot(dx, dy)
+        if d > DRAG_MOVE_THRESHOLD:
+            # 长拖：沿炮塔方向前进
+            ctrl.throttle = 1
+        elif d > DRAG_AIM_DEADZONE:
+            # 短拖：炮塔瞄准光标方向（屏蔽键盘转向，避免冲突）
+            mx = drag_cur[0] - ARENA_X
+            my = drag_cur[1] - ARENA_Y
+            ctrl.aim_angle = math.atan2(my - player.y, mx - player.x)
+            ctrl.turn = 0
+
+    # 开火：鼠标左键按住（连续，受冷却限制）或 空格/J
+    if mouse_down or keys[pygame.K_SPACE] or keys[pygame.K_j]:
+        ctrl.fire = True
+    return ctrl
+
+
+def build_p2_control(keys):
+    """双人模式玩家 2 控制（纯键盘）：方向键转向/前进后退，右 Shift 开火。"""
+    ctrl = ControlState()
+    if keys[pygame.K_LEFT]:
+        ctrl.turn -= 1
+    if keys[pygame.K_RIGHT]:
+        ctrl.turn += 1
+    kt = 0
+    if keys[pygame.K_UP]:
+        kt += 1
+    if keys[pygame.K_DOWN]:
+        kt -= 1
+    ctrl.throttle = kt
+    if keys[pygame.K_RSHIFT]:
+        ctrl.fire = True
+    return ctrl
+
+
+class NameField:
+    """简易文本输入（pygame 无 IME，仅支持 ASCII/数字；中文需预设默认值）。"""
+    def __init__(self, x, y, w, h, label, default=""):
+        self.rect = pygame.Rect(x, y, w, h)
+        self.label = label
+        self.text = default
+        self.active = False
+        self.max_len = 12
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            self.active = self.rect.collidepoint(event.pos)
+            return self.active
+        if event.type == pygame.KEYDOWN and self.active:
+            if event.key == pygame.K_BACKSPACE:
+                self.text = self.text[:-1]
+            elif event.key in (pygame.K_RETURN, pygame.K_TAB):
+                self.active = False
+            else:
+                ch = event.unicode
+                if ch and ch.isprintable() and ch != " " and len(self.text) < self.max_len:
+                    self.text += ch
+            return True
+        return False
+
+    def draw(self, screen, fonts):
+        col = COLOR_CYAN if self.active else COLOR_BTN_BORDER
+        pygame.draw.rect(screen, (20, 30, 48), self.rect, border_radius=6)
+        pygame.draw.rect(screen, col, self.rect, width=2, border_radius=6)
+        draw_text(screen, self.label, self.rect.x, self.rect.y - 22,
+                  fonts, FONT_XS, COLOR_LIGHT_GRAY)
+        draw_text(screen, self.text + ("|" if self.active else ""),
+                  self.rect.x + 10, self.rect.y + (self.rect.h - FONT_S // 2) // 2 - 4,
+                  fonts, FONT_M, COLOR_WHITE if self.text else COLOR_GRAY)
+
+
 class MenuScreen:
     """主菜单界面"""
     def __init__(self, game):
@@ -65,22 +159,24 @@ class MenuScreen:
 
     def _build_buttons(self):
         cx = SCREEN_WIDTH // 2
-        bw, bh = 280, 56
+        bw, bh = 300, 44
         sy = 280          # 下移 20px 给"选择游戏模式"提示留空间（钢铁洪流紧凑布局）
         gap = 16          # 垂直间距 22 → 16，更紧凑
         self.buttons = [
             Button(cx - bw // 2, sy, bw, bh, "单人闯关模式", FONT_L),
-            Button(cx - bw // 2, sy + bh + gap, bw, bh, "双人模式", FONT_L),
-            Button(cx - bw // 2, sy + (bh + gap) * 2, bw, bh, "车库", FONT_L),
-            Button(cx - bw // 2, sy + (bh + gap) * 3, bw, bh, "退出游戏", FONT_L),
+            Button(cx - bw // 2, sy + (bh + gap), bw, bh, "双人合作对抗 AI", FONT_L),
+            Button(cx - bw // 2, sy + (bh + gap) * 2, bw, bh, "道具狂欢模式", FONT_L),
+            Button(cx - bw // 2, sy + (bh + gap) * 3, bw, bh, "排行榜", FONT_L),
+            Button(cx - bw // 2, sy + (bh + gap) * 4, bw, bh, "车库", FONT_L),
+            Button(cx - bw // 2, sy + (bh + gap) * 5, bw, bh, "退出游戏", FONT_L),
         ]
         # 网页版：浏览器无法真正「退出」，禁用退出按钮，避免点击后画面冻结
         if _IN_BROWSER:
             self.buttons[-1].disabled = True
         # 网页版专属功能入口：下载存档到本地设备
         if _IN_BROWSER:
-            self.download_btn = Button(cx - 130, 556, 260, 40,
-                                       "下载存档到本地", FONT_M)
+            self.download_btn = Button(20, 588, 200, 34,
+                                       "下载存档到本地", FONT_S)
         else:
             self.download_btn = None
         # 全屏切换按钮（桌面离屏 letterbox / 网页 Fullscreen API 统一入口）
@@ -98,8 +194,12 @@ class MenuScreen:
                 elif i == 1:
                     self.game.change_state(STATE_TWO_PLAYER_SELECT)
                 elif i == 2:
-                    self.game.change_state(STATE_GARAGE)
+                    self.game.change_state(STATE_CARNIVAL)
                 elif i == 3:
+                    self.game.change_state(STATE_LEADERBOARD)
+                elif i == 4:
+                    self.game.change_state(STATE_GARAGE)
+                elif i == 5:
                     self.game.running = False
                 return
         # 网页版：下载存档到本地
@@ -192,10 +292,10 @@ class MenuScreen:
                   fonts, FONT_S, COLOR_YELLOW, center=True)
 
         # 按钮组玻璃面板包裹（把 CTA 聚拢成一台「控制台」，与 HUD 玻璃质感统一）
-        draw_glass_panel(screen, cx - 170, 256, 340, 308, alpha=150)
+        draw_glass_panel(screen, cx - 180, 258, 360, 374, alpha=150)
 
         # 按钮组上方提示
-        draw_text(screen, "选择游戏模式", SCREEN_WIDTH // 2, 262,
+        draw_text(screen, "选择游戏模式", SCREEN_WIDTH // 2, 272,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
 
         for btn in self.buttons:
@@ -214,8 +314,8 @@ class MenuScreen:
         # 网页版：下载存档入口 + 操作提示
         if self.download_btn is not None:
             self.download_btn.draw(screen, fonts)
-            draw_text(screen, "网页版专属：将游戏进度保存为文件下载到本机",
-                      SCREEN_WIDTH // 2, 602, fonts, FONT_XS, COLOR_LIGHT_GRAY, center=True)
+            draw_text(screen, "网页版专属：将进度保存为文件下载",
+                      232, 604, fonts, FONT_XS, COLOR_LIGHT_GRAY, center=False)
 
         # 全屏切换按钮（右上角，桌面/网页端统一入口）
         if self.fullscreen_btn is not None:
@@ -554,6 +654,11 @@ class SinglePlayScreen:
         self.final_victory = False      # 第 15 关通关动画进行中
         self.victory_anim = None
         self.auto_advance_timer = 0.0   # 胜利后自动进入下一关倒计时
+        # 鼠标拖拽状态（统一操作系统：短拖瞄准 / 长拖前进 / 左键开火）
+        self.dragging = False
+        self.drag_start = (0, 0)
+        self.drag_cur = (0, 0)
+        self.mouse_down = False
         self._build_buttons()
 
     def _build_buttons(self):
@@ -579,6 +684,19 @@ class SinglePlayScreen:
 
     # -------------------- 输入 --------------------
     def handle_event(self, event):
+        # 鼠标拖拽状态追踪（仅在战斗进行中生效，不干扰结算/返回按钮）
+        if self.world is not None and self.result_screen is None and not self.final_victory:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self.dragging = True
+                self.drag_start = event.pos
+                self.drag_cur = event.pos
+                self.mouse_down = True
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self.dragging = False
+                self.mouse_down = False
+            elif event.type == pygame.MOUSEMOTION and self.dragging:
+                self.drag_cur = event.pos
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.game.change_state(STATE_LEVEL_SELECT)
@@ -632,19 +750,11 @@ class SinglePlayScreen:
         if self.world is None:
             return
 
-        # 每帧轮询键盘状态，避免事件式追踪在失焦/连发时丢键
+        # 每帧轮询键盘 + 鼠标拖拽状态，构造统一 ControlState（与 AI 共用 apply_control）
         keys = pygame.key.get_pressed()
-        dx, dy = 0, 0
-        if keys[pygame.K_w] or keys[pygame.K_UP]:
-            dy -= 1
-        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-            dy += 1
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-            dx -= 1
-        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-            dx += 1
-        fire = keys[pygame.K_SPACE] or keys[pygame.K_j]
-        self.world.set_input(dx, dy, fire)
+        ctrl = build_p1_control(keys, self.mouse_down, self.dragging,
+                                self.drag_start, self.drag_cur, self.world.player)
+        self.world.set_input(ctrl)
         self.world.update(dt)
 
         # 胜利（非末关）：倒计时自动进入下一关（N 可跳过）
@@ -833,7 +943,7 @@ class SinglePlayScreen:
 
         # 底部按钮 / 操作提示
         self.back_btn.draw(screen, fonts)
-        draw_text(screen, "WASD移动  空格/J射击  ESC返回选关",
+        draw_text(screen, "A/D 转向 · W/S 前进后退 · 左键开火 · 拖拽瞄准/前进 · ESC返回选关",
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
         draw_corner_logo(screen, fonts)
@@ -854,19 +964,17 @@ class SinglePlayScreen:
 
 
 class TwoPlayerSelectScreen:
-    """双人模式子模式选择"""
+    """双人模式说明 + 进入设置（双人合作对抗无尽 AI）"""
     def __init__(self, game):
         self.game = game
-        self.coop_btn = None
-        self.vs_btn = None
+        self.start_btn = None
         self.back_btn = None
         self._build_buttons()
 
     def _build_buttons(self):
         cx = SCREEN_WIDTH // 2
-        bw, bh = 300, 80
-        self.coop_btn = Button(cx - bw // 2, 230, bw, bh, "合作对抗 AI", FONT_L)
-        self.vs_btn = Button(cx - bw // 2, 340, bw, bh, "1v1 对战", FONT_L)
+        bw, bh = 300, 56
+        self.start_btn = Button(cx - bw // 2, 470, bw, bh, "进入对战设置", FONT_L)
         self.back_btn = Button(40, SCREEN_HEIGHT - 80, 160, 48, "← 返回菜单", FONT_M)
 
     def enter(self):
@@ -876,11 +984,7 @@ class TwoPlayerSelectScreen:
         if self.back_btn.handle_event(event):
             self.game.change_state(STATE_MENU)
             return
-        if self.coop_btn.handle_event(event):
-            self.game.two_mode = "coop"
-            self.game.change_state(STATE_P2_TANK_SELECT)
-        elif self.vs_btn.handle_event(event):
-            self.game.two_mode = "vs"
+        if self.start_btn.handle_event(event):
             self.game.change_state(STATE_P2_TANK_SELECT)
 
     def update(self, dt):
@@ -889,22 +993,30 @@ class TwoPlayerSelectScreen:
     def draw(self, screen, fonts):
         draw_bg(screen)
 
-        draw_glow_accent(screen, SCREEN_WIDTH // 2, 70, "双人模式",
+        draw_glow_accent(screen, SCREEN_WIDTH // 2, 64, "双人合作对抗 AI",
                          fonts, FONT_XXL, COLOR_GOLD)
-        draw_text(screen, "选择子模式", SCREEN_WIDTH // 2, 140,
-                  fonts, FONT_L, COLOR_CYAN, center=True)
+        draw_text(screen, "两名玩家并肩作战，迎击持续生成的无尽敌方坦克",
+                  SCREEN_WIDTH // 2, 128, fonts, FONT_M, COLOR_CYAN, center=True)
 
-        # 说明
-        draw_glass_panel(screen, 120, 460, SCREEN_WIDTH - 240, 110, alpha=200)
-        draw_text(screen, "玩家 1:  WASD 移动 + 空格 射击",
-                  160, 490, fonts, FONT_M, COLOR_GREEN)
-        draw_text(screen, "玩家 2:  鼠标移动控制方向+位置，左键射击",
-                  160, 530, fonts, FONT_M, COLOR_BLUE)
-        draw_text(screen, "双人模式不计入坦克解锁的战斗场次统计",
-                  160, 560, fonts, FONT_S, COLOR_ORANGE)
+        # 规则说明
+        draw_glass_panel(screen, 100, 180, SCREEN_WIDTH - 200, 270, alpha=200)
+        lines = [
+            ("玩法", COLOR_GOLD),
+            ("· 无尽模式：AI 坦克持续生成，双方阵亡即结束", COLOR_LIGHT_GRAY),
+            ("· 实时积分：击毁敌方坦克按归属计入对应玩家", COLOR_LIGHT_GRAY),
+            ("· 自定义命名：开局前为两名玩家命名", COLOR_LIGHT_GRAY),
+            ("· 积分排行榜：结算成绩进入排行榜", COLOR_LIGHT_GRAY),
+            ("", COLOR_LIGHT_GRAY),
+            ("操作", COLOR_GOLD),
+            ("玩家1：A/D 转向 · W/S 前进后退 · 鼠标左键开火 · 拖拽瞄准/前进", COLOR_GREEN),
+            ("玩家2：方向键转向/移动 · 右 Shift 开火", COLOR_BLUE),
+        ]
+        ty = 206
+        for txt, col in lines:
+            draw_text(screen, txt, 130, ty, fonts, FONT_S, col, center=False)
+            ty += 24
 
-        self.coop_btn.draw(screen, fonts)
-        self.vs_btn.draw(screen, fonts)
+        self.start_btn.draw(screen, fonts)
         self.back_btn.draw(screen, fonts)
         draw_corner_logo(screen, fonts)
 
@@ -919,6 +1031,8 @@ class P2TankSelectScreen:
         self.selected_idx = 0
         self.confirm_btn = None
         self.back_btn = None
+        self.p1_name_field = None
+        self.p2_name_field = None
         self._build_buttons()
 
     def _build_buttons(self):
@@ -930,7 +1044,7 @@ class P2TankSelectScreen:
         card_w = min(200, (SCREEN_WIDTH - 80 - gap * (n - 1)) // n)
         total_w = card_w * n + gap * (n - 1)
         start_x = (SCREEN_WIDTH - total_w) // 2
-        y = 150
+        y = 180
         for i, name in enumerate(TANK_ORDER):
             x = start_x + i * (card_w + gap)
             btn = Button(x, y, card_w, card_h, "", FONT_M)
@@ -947,8 +1061,14 @@ class P2TankSelectScreen:
                     self.selected_idx = i
                     break
 
-        self.confirm_btn = Button(SCREEN_WIDTH // 2 - 95, 540, 190, 48, "确认出战", FONT_L)
-        self.back_btn = Button(40, SCREEN_HEIGHT - 70, 160, 48, "← 返回模式", FONT_M)
+        # 玩家命名输入框（默认沿用上次设置）
+        self.p1_name_field = NameField(110, 92, 320, 36, "玩家 1 名称",
+                                       getattr(self.game, "p1_name", "玩家1"))
+        self.p2_name_field = NameField(530, 92, 320, 36, "玩家 2 名称",
+                                       getattr(self.game, "p2_name", "玩家2"))
+
+        self.confirm_btn = Button(SCREEN_WIDTH // 2 - 95, 498, 190, 48, "确认出战", FONT_L)
+        self.back_btn = Button(40, SCREEN_HEIGHT - 70, 160, 48, "← 返回", FONT_M)
 
     def enter(self):
         self._build_buttons()
@@ -956,6 +1076,11 @@ class P2TankSelectScreen:
     def handle_event(self, event):
         if self.back_btn.handle_event(event):
             self.game.change_state(STATE_TWO_PLAYER_SELECT)
+            return
+        # 名称输入优先（激活时消费按键事件，避免误触其它控件）
+        if self.p1_name_field.handle_event(event):
+            return
+        if self.p2_name_field.handle_event(event):
             return
         save = get_save(self.game)
         unlocked = save.get("unlocked_tanks", [])
@@ -966,6 +1091,8 @@ class P2TankSelectScreen:
         if self.confirm_btn.handle_event(event):
             name = TANK_ORDER[self.selected_idx]
             if name in unlocked:
+                self.game.p1_name = self.p1_name_field.text or "玩家1"
+                self.game.p2_name = self.p2_name_field.text or "玩家2"
                 self.game.p2_tank = name
                 self.game.change_state(STATE_TWO_PLAY)
 
@@ -977,12 +1104,16 @@ class P2TankSelectScreen:
         save = get_save(self.game)
         unlocked = save.get("unlocked_tanks", [])
 
-        draw_glow_accent(screen, SCREEN_WIDTH // 2, 55, "玩家 2 · 选择坦克",
+        draw_glow_accent(screen, SCREEN_WIDTH // 2, 44, "对战设置",
                          fonts, FONT_XXL, COLOR_GOLD)
-        draw_text(screen, f"已解锁 {len(unlocked)}/{len(TANK_ORDER)}   |   当前模式: {'合作对抗 AI' if self.game.two_mode == 'coop' else '1v1 对战'}",
-                  SCREEN_WIDTH // 2, 110, fonts, FONT_S, COLOR_CYAN, center=True)
-        draw_text(screen, "请玩家 2 选择出战坦克（已解锁车辆可选）",
-                  SCREEN_WIDTH // 2, 135, fonts, FONT_S, COLOR_WHITE, center=True)
+        # 玩家命名
+        self.p1_name_field.draw(screen, fonts)
+        self.p2_name_field.draw(screen, fonts)
+        p1_tank = save.get("last_selected_tank", "轻型侦察车")
+        draw_text(screen, f"玩家 1 出战坦克: {p1_tank}（来自车库）", 110, 142,
+                  fonts, FONT_XS, COLOR_GREEN, center=False)
+        draw_text(screen, "玩家 2 选择出战坦克（已解锁车辆可选）",
+                  SCREEN_WIDTH // 2, 160, fonts, FONT_S, COLOR_WHITE, center=True)
 
         # 坦克卡片
         for i, (btn, name) in enumerate(self.tank_buttons):
@@ -1060,13 +1191,13 @@ class P2TankSelectScreen:
         sel_name = TANK_ORDER[self.selected_idx]
         sel_ok = sel_name in unlocked
         sel_color = TANK_DATA[sel_name]["color"] if sel_ok else COLOR_GRAY
-        draw_text(screen, f"已选: {sel_name}", SCREEN_WIDTH // 2, 508,
+        draw_text(screen, f"已选: {sel_name}", SCREEN_WIDTH // 2, 452,
                   fonts, FONT_M, sel_color, center=True)
         self.confirm_btn.disabled = not sel_ok
         self.confirm_btn.draw(screen, fonts)
         self.back_btn.draw(screen, fonts)
 
-        draw_text(screen, "操作提示: 鼠标点击选择车辆，确认后进入对局",
+        draw_text(screen, "点击卡片选车 · 输入名称 · 确认后进入对局",
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT - 16,
                   fonts, FONT_XS, COLOR_LIGHT_GRAY, center=True)
         draw_corner_logo(screen, fonts)
@@ -1082,36 +1213,54 @@ class TwoPlayScreen:
         self.back_btn = None
         self.menu_btn = None
         self.retry_btn = None
+        self.leaderboard_btn = None
         self.result_popup = None
+        # 玩家 1 鼠标拖拽状态（与单人模式统一操作系统）
+        self.dragging = False
+        self.drag_start = (0, 0)
+        self.drag_cur = (0, 0)
+        self.mouse_down = False
         self._build_buttons()
 
     def _build_buttons(self):
         self.back_btn = Button(SCREEN_WIDTH - 200, SCREEN_HEIGHT - 70, 170, 44,
                                "← 返回选择", FONT_M)
-        self.retry_btn = Button(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 80,
-                                200, 52, "再来一局", FONT_L)
-        self.menu_btn = Button(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 150,
-                               200, 52, "回主菜单", FONT_L)
+        self.retry_btn = Button(0, 0, 150, 48, "再来一局", FONT_L)
+        self.menu_btn = Button(0, 0, 150, 48, "回主菜单", FONT_L)
+        self.leaderboard_btn = Button(0, 0, 150, 48, "查看排行榜", FONT_L)
 
     def _start_game(self):
-        """初始化双人游戏世界"""
-        mode = self.game.two_mode  # "coop" 或 "vs"
-        # 玩家 1 使用存档选中的坦克；玩家 2 使用选车界面确认的坦克（未解锁则兜底基础车）
+        """初始化双人合作对抗 AI 世界（无尽）。"""
         save = get_save(self.game)
         t1 = save.get("last_selected_tank", "轻型侦察车")
         if t1 not in save.get("unlocked_tanks", []):
             t1 = "轻型侦察车"
         t2 = self.game.p2_tank if self.game.p2_tank in save.get("unlocked_tanks", []) else "轻型侦察车"
-
-        level = self.game.current_level if mode == "coop" else 1
-        self.world = TwoPlayerGameWorld(mode, level, t1, t2, self.game.fonts)
+        p1_name = self.game.p1_name or "玩家1"
+        p2_name = self.game.p2_name or "玩家2"
+        self.world = TwoPlayerGameWorld(p1_name, p2_name, t1, t2, self.game.fonts)
         self.result_popup = None
         self.time = 0.0
+        self.dragging = False
+        self.mouse_down = False
 
     def enter(self):
         self._start_game()
 
     def handle_event(self, event):
+        # 玩家 1 鼠标拖拽追踪（仅战斗进行中生效）
+        if self.world is not None and self.result_popup is None:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self.dragging = True
+                self.drag_start = event.pos
+                self.drag_cur = event.pos
+                self.mouse_down = True
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self.dragging = False
+                self.mouse_down = False
+            elif event.type == pygame.MOUSEMOTION and self.dragging:
+                self.drag_cur = event.pos
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.game.change_state(STATE_TWO_PLAYER_SELECT)
@@ -1123,6 +1272,9 @@ class TwoPlayScreen:
                 if event.key == pygame.K_m:
                     self.game.change_state(STATE_MENU)
                     return
+                if event.key == pygame.K_l:
+                    self.game.change_state(STATE_LEADERBOARD)
+                    return
 
         if self.result_popup is not None:
             if self.retry_btn.handle_event(event):
@@ -1130,6 +1282,9 @@ class TwoPlayScreen:
                 return
             if self.menu_btn.handle_event(event):
                 self.game.change_state(STATE_MENU)
+                return
+            if self.leaderboard_btn.handle_event(event):
+                self.game.change_state(STATE_LEADERBOARD)
                 return
 
         if self.back_btn.handle_event(event):
@@ -1141,51 +1296,29 @@ class TwoPlayScreen:
         if self.world is None:
             return
 
-        # ---- 玩家 1 输入（键盘轮询）----
         keys = pygame.key.get_pressed()
-        p1_dx, p1_dy, p1_fire = 0, 0, False
-        if keys[pygame.K_w] or keys[pygame.K_UP]:
-            p1_dy -= 1
-        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-            p1_dy += 1
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-            p1_dx -= 1
-        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-            p1_dx += 1
-        p1_fire = keys[pygame.K_SPACE] or keys[pygame.K_j]
-
-        # ---- 玩家 2 输入（鼠标控制）----
-        mouse_pos = self.game.map_mouse(pygame.mouse.get_pos())
-        mouse_buttons = pygame.mouse.get_pressed()
-        p2_fire = mouse_buttons[0]
-
-        p2_dx, p2_dy = 0.0, 0.0
-        if self.world.player2.alive:
-            # 转换鼠标坐标到竞技场内部坐标
-            arena_mx = mouse_pos[0] - ARENA_X
-            arena_my = mouse_pos[1] - ARENA_Y
-            dx = arena_mx - self.world.player2.x
-            dy = arena_my - self.world.player2.y
-            dist = math.hypot(dx, dy)
-            if dist > MOUSE_CONTROL_DEADZONE:
-                p2_dx = dx / dist
-                p2_dy = dy / dist
-
-        self.world.set_input(p1_dx, p1_dy, p1_fire, p2_dx, p2_dy, p2_fire)
+        # 玩家 1：鼠标 + WASD（与单人模式统一操作系统）
+        p1_ctrl = build_p1_control(keys, self.mouse_down, self.dragging,
+                                   self.drag_start, self.drag_cur, self.world.player1)
+        # 玩家 2：纯键盘（方向键 + 右 Shift）
+        p2_ctrl = build_p2_control(keys)
+        self.world.set_input(p1_ctrl, p2_ctrl)
         self.world.update(dt)
 
-        # 结算检测
+        # 结算检测（双方阵亡即结束）
         if self.world.result != TwoPlayerGameWorld.RESULT_NONE and self.result_popup is None:
             self._on_game_end()
 
     def _on_game_end(self):
-        """游戏结束，仅显示结算，不写入存档（双人模式不计入解锁）"""
-        result = self.world.result
-        mode = self.game.two_mode
+        """游戏结束：两名玩家阵亡。把双方积分写入「双人合作」排行榜。"""
+        save = get_save(self.game)
+        for _name, sc in self.world.scores.items():
+            save = SaveManager.record_leaderboard(save, _name, sc, "vs_ai")
+        persist_save(self.game, save)
         self.result_popup = {
-            "result": result,
-            "mode": mode,
-            "score": self.world.score,
+            "scores": dict(self.world.scores),
+            "kills": self.world.kills,
+            "time": self.world.time,
         }
 
     def draw(self, screen, fonts):
@@ -1194,52 +1327,42 @@ class TwoPlayScreen:
             return
 
         w = self.world
-        mode_txt = "合作模式" if w.mode == "coop" else "对战模式"
+        p1_name = self.game.p1_name or "玩家1"
+        p2_name = self.game.p2_name or "玩家2"
 
         # ---- 游戏世界 ----
         w.draw(screen, ARENA_X, ARENA_Y, fonts)
 
-        # ---- 顶部 HUD ----
+        # ---- 顶部 HUD（双积分对称，互不遮挡）----
         hud_y = 18
-
-        # 玩家 1 HUD（左上，玻璃面板）
         p1 = w.player1
-        p1_color = TANK_DATA.get(p1.tank_name, {}).get("color", COLOR_GREEN)
-        draw_glass_panel(screen, 15, hud_y, 280, 70, alpha=200)
-        draw_text(screen, "P1", 30, hud_y + 8, fonts, FONT_M, p1_color)
-        draw_hearts(screen, 30, hud_y + 34, max(0, p1.hp), p1.max_hp,
-                    COLOR_RED, size=16, gap=3)
-        name_x = 30 + p1.max_hp * (16 + 3) + 6
-        if not p1.alive:
-            draw_text(screen, "阵亡", name_x, hud_y + 38, fonts, FONT_S, COLOR_GRAY)
-            name_x += fonts[FONT_S].size("阵亡")[0] + 8
-        draw_text(screen, p1.tank_name, name_x, hud_y + 38, fonts, FONT_S, COLOR_WHITE)
-
-        # 玩家 2 HUD（右上，玻璃面板）
         p2 = w.player2
+        p1_color = TANK_DATA.get(p1.tank_name, {}).get("color", COLOR_GREEN)
         p2_color = TANK_DATA.get(p2.tank_name, {}).get("color", COLOR_BLUE)
-        draw_glass_panel(screen, SCREEN_WIDTH - 295, hud_y, 280, 70, alpha=200)
-        draw_text(screen, "P2", SCREEN_WIDTH - 280, hud_y + 8, fonts, FONT_M, p2_color)
-        draw_hearts(screen, SCREEN_WIDTH - 280, hud_y + 34, max(0, p2.hp),
-                    p2.max_hp, COLOR_RED, size=16, gap=3)
-        name_x2 = SCREEN_WIDTH - 280 + p2.max_hp * (16 + 3) + 6
-        if not p2.alive:
-            draw_text(screen, "阵亡", name_x2, hud_y + 38, fonts, FONT_S, COLOR_GRAY)
-            name_x2 += fonts[FONT_S].size("阵亡")[0] + 8
-        draw_text(screen, p2.tank_name, name_x2, hud_y + 38, fonts, FONT_S, COLOR_WHITE)
 
-        # 中间信息（玻璃面板）
-        ci_w, ci_h = 360, 40
+        # 玩家 1 HUD（左上）
+        draw_glass_panel(screen, 15, hud_y, 300, 72, alpha=200)
+        draw_text(screen, p1_name, 30, hud_y + 8, fonts, FONT_M, p1_color)
+        draw_hearts(screen, 30, hud_y + 34, max(0, p1.hp), p1.max_hp,
+                    COLOR_RED, size=14, gap=3)
+        draw_text(screen, f"得分 {w.scores.get(p1_name, 0)}",
+                 170, hud_y + 30, fonts, FONT_S, COLOR_GOLD)
+
+        # 玩家 2 HUD（右上）
+        draw_glass_panel(screen, SCREEN_WIDTH - 315, hud_y, 300, 72, alpha=200)
+        draw_text(screen, p2_name, SCREEN_WIDTH - 300, hud_y + 8, fonts, FONT_M, p2_color)
+        draw_hearts(screen, SCREEN_WIDTH - 300, hud_y + 34, max(0, p2.hp), p2.max_hp,
+                    COLOR_RED, size=14, gap=3)
+        draw_text(screen, f"得分 {w.scores.get(p2_name, 0)}",
+                 SCREEN_WIDTH - 170, hud_y + 30, fonts, FONT_S, COLOR_GOLD)
+
+        # 中间信息（生存时间 + 击毁数）
+        ci_w, ci_h = 320, 40
         ci_x = (SCREEN_WIDTH - ci_w) // 2
         draw_glass_panel(screen, ci_x, hud_y + 14, ci_w, ci_h, alpha=200)
-        if w.mode == "coop":
-            info = f"{mode_txt}  |  剩余 {w.remaining_enemies()}  |  得分 {w.score}"
-            draw_text(screen, info, SCREEN_WIDTH // 2, hud_y + 34,
-                      fonts, FONT_S, COLOR_CYAN, center=True)
-        else:
-            info = f"{mode_txt}  |  击败对方即获胜！"
-            draw_text(screen, info, SCREEN_WIDTH // 2, hud_y + 34,
-                      fonts, FONT_S, COLOR_ORANGE, center=True)
+        info = f"生存 {int(w.time)}s   |   击毁 {w.kills}"
+        draw_text(screen, info, SCREEN_WIDTH // 2, hud_y + 34,
+                  fonts, FONT_S, COLOR_CYAN, center=True)
 
         # 道具栏（左下/右下分别显示）
         self._draw_player_item(screen, p1, 60, SCREEN_HEIGHT - 35, fonts)
@@ -1263,7 +1386,7 @@ class TwoPlayScreen:
                   fonts, FONT_S, tip_color, center=True)
 
         # 底部操作提示
-        draw_text(screen, "P1: WASD+空格   P2: 鼠标移动+左键   ESC返回选择",
+        draw_text(screen, "P1: A/D 转向·W/S 移动·左键开火   P2: 方向键·右Shift开火   ESC返回",
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
 
@@ -1312,8 +1435,6 @@ class TwoPlayScreen:
 
     def _draw_result_popup(self, screen, fonts):
         info = self.result_popup
-        result = info["result"]
-        mode = info["mode"]
 
         # 径向聚光灯遮罩（中心透、边缘暗，聚焦结算）
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -1321,47 +1442,41 @@ class TwoPlayScreen:
         screen.blit(overlay, (0, 0))
         draw_vignette(screen, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, strength=170)
 
-        pw, ph = 500, 320
+        pw, ph = 520, 360
         px, py = (SCREEN_WIDTH - pw) // 2, (SCREEN_HEIGHT - ph) // 2
         draw_glass_panel(screen, px, py, pw, ph, alpha=245)
 
-        if mode == "coop":
-            if result == TwoPlayerGameWorld.RESULT_WIN:
-                title, col = "合作胜利！", COLOR_GOLD
-                sub = f"共同击毁 {self.world.enemies_killed} 辆敌坦"
-            else:
-                title, col = "合作失败", COLOR_RED
-                sub = "有玩家被击毁，再接再厉！"
-        else:
-            if result == TwoPlayerGameWorld.RESULT_P1_WIN:
-                title, col = "玩家 1 获胜！", COLOR_GREEN
-                sub = "玩家 2 被击毁"
-            elif result == TwoPlayerGameWorld.RESULT_P2_WIN:
-                title, col = "玩家 2 获胜！", COLOR_CYAN
-                sub = "玩家 1 被击毁"
-            else:
-                title, col = "双败", COLOR_RED
-                sub = "同归于尽！"
+        # 积分排名（按分数降序）
+        ranked = sorted(info["scores"].items(), key=lambda kv: kv[1], reverse=True)
+        draw_text(screen, "对局结束 · 积分排行", px + pw // 2, py + 40,
+                  fonts, FONT_XXL, COLOR_GOLD, center=True)
+        draw_text(screen, f"共击毁 {info['kills']} 辆敌方坦克   生存 {int(info['time'])}s",
+                  px + pw // 2, py + 92, fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
 
-        draw_text(screen, title, px + pw // 2, py + 60, fonts, FONT_XXL, col, center=True)
-        draw_text(screen, sub, px + pw // 2, py + 120, fonts, FONT_L, COLOR_LIGHT_GRAY, center=True)
+        ry = py + 132
+        for i, (nm, sc) in enumerate(ranked):
+            col = COLOR_GOLD if i == 0 else (COLOR_CYAN if i == 1 else COLOR_WHITE)
+            draw_text(screen, f"第 {i + 1} 名   {nm}", px + 60, ry, fonts, FONT_M, col)
+            draw_text(screen, f"{sc} 分", px + pw - 60, ry, fonts, FONT_M, col, center=True)
+            ry += 34
 
-        if mode == "coop":
-            draw_text(screen, f"本局得分: {info['score']}",
-                      px + pw // 2, py + 170, fonts, FONT_M, COLOR_YELLOW, center=True)
+        draw_text(screen, "成绩已计入排行榜",
+                  px + pw // 2, py + ph - 104, fonts, FONT_S, COLOR_GRAY, center=True)
 
-        draw_text(screen, "本局不计入解锁统计",
-                  px + pw // 2, py + 210, fonts, FONT_S, COLOR_GRAY, center=True)
-
-        # 两个按钮左右并排（避免垂直重叠导致的误触/遮挡）
-        self.retry_btn.rect.centerx = SCREEN_WIDTH // 2 - 110
-        self.retry_btn.rect.y = py + ph - 60
-        self.menu_btn.rect.centerx = SCREEN_WIDTH // 2 + 110
-        self.menu_btn.rect.y = py + ph - 60
+        # 三个按钮横排（避免垂直重叠导致的误触/遮挡）
+        bw, bh = 150, 48
+        gap = 20
+        total = bw * 3 + gap * 2
+        sx = (SCREEN_WIDTH - total) // 2
+        by = py + ph - 58
+        self.retry_btn.rect.topleft = (sx, by)
+        self.menu_btn.rect.topleft = (sx + bw + gap, by)
+        self.leaderboard_btn.rect.topleft = (sx + (bw + gap) * 2, by)
         self.retry_btn.draw(screen, fonts)
         self.menu_btn.draw(screen, fonts)
+        self.leaderboard_btn.draw(screen, fonts)
 
-        draw_text(screen, "快捷键: R 再来一局   M 回主菜单",
+        draw_text(screen, "快捷键: R 再来一局   M 回主菜单   L 排行榜",
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28,
                   fonts, FONT_S, COLOR_YELLOW, center=True)
 
@@ -1612,3 +1727,260 @@ class GarageScreen:
 
         self.back_btn.draw(screen, fonts)
         draw_corner_logo(screen, fonts)
+
+
+class CarnivalScreen:
+    """道具狂欢模式（无尽）：大量道具 + 持续生成敌人 + 实时计分。"""
+
+    def __init__(self, game):
+        self.game = game
+        self.world = None
+        self.time = 0.0
+        self.back_btn = None
+        self.menu_btn = None
+        self.retry_btn = None
+        self.leaderboard_btn = None
+        self.result_popup = None
+        # 玩家鼠标拖拽状态（与单人模式统一操作系统）
+        self.dragging = False
+        self.drag_start = (0, 0)
+        self.drag_cur = (0, 0)
+        self.mouse_down = False
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.back_btn = Button(SCREEN_WIDTH - 200, SCREEN_HEIGHT - 70, 170, 44,
+                               "← 返回菜单", FONT_M)
+        self.retry_btn = Button(0, 0, 150, 48, "再来一局", FONT_L)
+        self.menu_btn = Button(0, 0, 150, 48, "回主菜单", FONT_L)
+        self.leaderboard_btn = Button(0, 0, 150, 48, "查看排行榜", FONT_L)
+
+    def _start_game(self):
+        save = get_save(self.game)
+        tank_name = save.get("last_selected_tank", "轻型侦察车")
+        if tank_name not in save.get("unlocked_tanks", ["轻型侦察车"]):
+            tank_name = "轻型侦察车"
+        self.world = CarnivalGameWorld(tank_name, self.game.fonts)
+        self.result_popup = None
+        self.time = 0.0
+        self.dragging = False
+        self.mouse_down = False
+
+    def enter(self):
+        self._start_game()
+
+    def handle_event(self, event):
+        if self.world is not None and self.result_popup is None:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self.dragging = True
+                self.drag_start = event.pos
+                self.drag_cur = event.pos
+                self.mouse_down = True
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self.dragging = False
+                self.mouse_down = False
+            elif event.type == pygame.MOUSEMOTION and self.dragging:
+                self.drag_cur = event.pos
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.game.change_state(STATE_MENU)
+                return
+            if self.result_popup is not None:
+                if event.key == pygame.K_r:
+                    self._start_game()
+                    return
+                if event.key == pygame.K_m:
+                    self.game.change_state(STATE_MENU)
+                    return
+                if event.key == pygame.K_l:
+                    self.game.change_state(STATE_LEADERBOARD)
+                    return
+
+        if self.result_popup is not None:
+            if self.retry_btn.handle_event(event):
+                self._start_game()
+                return
+            if self.menu_btn.handle_event(event):
+                self.game.change_state(STATE_MENU)
+                return
+            if self.leaderboard_btn.handle_event(event):
+                self.game.change_state(STATE_LEADERBOARD)
+                return
+
+        if self.back_btn.handle_event(event):
+            self.game.change_state(STATE_MENU)
+            return
+
+    def update(self, dt):
+        self.time += dt
+        if self.world is None:
+            return
+        keys = pygame.key.get_pressed()
+        ctrl = build_p1_control(keys, self.mouse_down, self.dragging,
+                                self.drag_start, self.drag_cur, self.world.player)
+        self.world.set_input(ctrl)
+        self.world.update(dt)
+        if self.world.result != GameWorld.RESULT_NONE and self.result_popup is None:
+            self._on_game_end()
+
+    def _on_game_end(self):
+        """玩家阵亡：记录到「道具狂欢」排行榜。"""
+        save = get_save(self.game)
+        name = self.world.player.tank_name
+        save = SaveManager.record_leaderboard(save, name, self.world.score, "carnival")
+        persist_save(self.game, save)
+        self.result_popup = {
+            "score": self.world.score,
+            "kills": self.world.enemies_killed,
+            "time": self.world.time,
+        }
+
+    def draw(self, screen, fonts):
+        draw_bg(screen)
+        if self.world is None:
+            return
+        w = self.world
+        player = w.player
+        w.draw(screen, ARENA_X, ARENA_Y, fonts)
+
+        hud_y = 12
+        # 左上：血量
+        lp_x, lp_y, lp_w, lp_h = 20, hud_y, 260, 60
+        draw_glass_panel(screen, lp_x, lp_y, lp_w, lp_h, alpha=200)
+        draw_text(screen, "装甲能量", lp_x + 12, lp_y + 8, fonts, FONT_XS, COLOR_LIGHT_GRAY)
+        hp_ratio = max(0.0, min(1.0, player.hp / max(1, player.max_hp)))
+        bar_x, bar_y, bar_w, bar_h = lp_x + 12, lp_y + 30, 120, 10
+        ebar_bg = pygame.Surface((bar_w, bar_h), pygame.SRCALPHA)
+        ebar_bg.fill((60, 20, 20))
+        screen.blit(ebar_bg, (bar_x, bar_y))
+        fg_surf = pygame.Surface((bar_w, bar_h), pygame.SRCALPHA)
+        for i in range(bar_w):
+            t = i / max(1, bar_w)
+            r = int(COLOR_RED[0] + (COLOR_GOLD[0] - COLOR_RED[0]) * t)
+            g = int(COLOR_RED[1] + (COLOR_GOLD[1] - COLOR_RED[1]) * t)
+            b = int(COLOR_RED[2] + (COLOR_GOLD[2] - COLOR_RED[2]) * t)
+            fg_surf.fill((r, g, b, 255), (i, 0, 1, bar_h))
+        screen.blit(fg_surf, (bar_x, bar_y), (0, 0, int(bar_w * hp_ratio), bar_h))
+        pygame.draw.rect(screen, COLOR_BTN_BORDER, (bar_x, bar_y, bar_w, bar_h), width=1, border_radius=3)
+        draw_text(screen, f"{max(0, player.hp)}/{player.max_hp}",
+                  bar_x + bar_w + 8, bar_y - 2, fonts, FONT_XS, COLOR_WHITE)
+        draw_text(screen, player.tank_name, lp_x + 12, lp_y + 44, fonts, FONT_S,
+                  TANK_DATA.get(player.tank_name, {}).get("color", COLOR_WHITE))
+
+        # 中：得分 + 击杀 + 时间
+        mp_w, mp_h = 300, 60
+        mp_x = (SCREEN_WIDTH - mp_w) // 2
+        draw_glass_panel(screen, mp_x, hud_y, mp_w, mp_h, alpha=200)
+        draw_text(screen, f"得分 {w.score}   击毁 {w.enemies_killed}",
+                  mp_x + mp_w // 2, hud_y + 14, fonts, FONT_L, COLOR_GOLD, center=True)
+        draw_text(screen, f"已生存 {int(w.time)}s",
+                  mp_x + mp_w // 2, hud_y + 40, fonts, FONT_S, COLOR_CYAN, center=True)
+
+        # 右：增益
+        active = player.get_active_powerups()
+        shield_on = player.shield_active
+        draw_glass_panel(screen, SCREEN_WIDTH - 280, hud_y, 260, 60, alpha=200)
+        draw_text(screen, "增益", SCREEN_WIDTH - 268, hud_y + 8, fonts, FONT_XS, COLOR_LIGHT_GRAY)
+        if active or shield_on:
+            names = [POWERUP_NAMES.get(t, str(t)) for t in active]
+            buff_name = "+".join(names) if names else ""
+            if shield_on:
+                buff_name = (buff_name + " +护盾") if buff_name else "护盾"
+            color = COLOR_GOLD if len(active) > 1 else (
+                POWERUP_COLORS.get(active[0], COLOR_WHITE) if active else COLOR_YELLOW)
+            draw_text(screen, buff_name, SCREEN_WIDTH - 268, hud_y + 32, fonts, FONT_M, color)
+        else:
+            draw_text(screen, "无", SCREEN_WIDTH - 268, hud_y + 32, fonts, FONT_M, COLOR_GRAY)
+
+        # 底部操作提示
+        draw_text(screen, "A/D 转向 · W/S 移动 · 左键开火 · 拖拽瞄准/前进 · ESC返回",
+                  SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28, fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
+        self.back_btn.draw(screen, fonts)
+
+        if self.result_popup:
+            self._draw_result_popup(screen, fonts)
+
+    def _draw_result_popup(self, screen, fonts):
+        info = self.result_popup
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        screen.blit(overlay, (0, 0))
+        draw_vignette(screen, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, strength=170)
+        pw, ph = 520, 360
+        px, py = (SCREEN_WIDTH - pw) // 2, (SCREEN_HEIGHT - ph) // 2
+        draw_glass_panel(screen, px, py, pw, ph, alpha=245)
+        draw_text(screen, "狂欢结束", px + pw // 2, py + 50, fonts, FONT_XXL, COLOR_GOLD, center=True)
+        draw_text(screen, f"最终得分 {info['score']}    击毁 {info['kills']} 辆",
+                  px + pw // 2, py + 110, fonts, FONT_L, COLOR_LIGHT_GRAY, center=True)
+        draw_text(screen, f"生存时间 {int(info['time'])}s",
+                  px + pw // 2, py + 150, fonts, FONT_M, COLOR_CYAN, center=True)
+        draw_text(screen, "成绩已计入排行榜",
+                  px + pw // 2, py + ph - 104, fonts, FONT_S, COLOR_GRAY, center=True)
+        bw, bh = 150, 48
+        gap = 20
+        total = bw * 3 + gap * 2
+        sx = (SCREEN_WIDTH - total) // 2
+        by = py + ph - 58
+        self.retry_btn.rect.topleft = (sx, by)
+        self.menu_btn.rect.topleft = (sx + bw + gap, by)
+        self.leaderboard_btn.rect.topleft = (sx + (bw + gap) * 2, by)
+        self.retry_btn.draw(screen, fonts)
+        self.menu_btn.draw(screen, fonts)
+        self.leaderboard_btn.draw(screen, fonts)
+        draw_text(screen, "快捷键: R 再来一局   M 回主菜单   L 排行榜",
+                  SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28, fonts, FONT_S, COLOR_YELLOW, center=True)
+
+
+class LeaderboardScreen:
+    """积分排行榜：展示「道具狂欢」与「双人合作」两类成绩。"""
+
+    def __init__(self, game):
+        self.game = game
+        self.back_btn = None
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.back_btn = Button(40, SCREEN_HEIGHT - 70, 160, 48, "← 返回菜单", FONT_M)
+
+    def enter(self):
+        pass
+
+    def handle_event(self, event):
+        if self.back_btn.handle_event(event):
+            self.game.change_state(STATE_MENU)
+
+    def update(self, dt):
+        pass
+
+    def draw(self, screen, fonts):
+        draw_bg(screen)
+        save = get_save(self.game)
+        draw_glow_accent(screen, SCREEN_WIDTH // 2, 56, "积分排行榜",
+                         fonts, FONT_XXL, COLOR_GOLD)
+        draw_text(screen, "道具狂欢 · 双人合作 成绩排行（各取前 10）",
+                  SCREEN_WIDTH // 2, 104, fonts, FONT_S, COLOR_CYAN, center=True)
+
+        carnival = SaveManager.get_leaderboard(save, "carnival")
+        vs_ai = SaveManager.get_leaderboard(save, "vs_ai")
+        self._draw_board(screen, fonts, "道具狂欢模式", carnival, 80, 150)
+        self._draw_board(screen, fonts, "双人合作模式", vs_ai, SCREEN_WIDTH // 2 + 20, 150)
+
+        self.back_btn.draw(screen, fonts)
+        draw_corner_logo(screen, fonts)
+
+    def _draw_board(self, screen, fonts, title, entries, x, y):
+        w = SCREEN_WIDTH // 2 - 110
+        draw_glass_panel(screen, x, y, w, 430, alpha=200)
+        draw_text(screen, title, x + w // 2, y + 14, fonts, FONT_M, COLOR_GOLD, center=True)
+        pygame.draw.line(screen, COLOR_BTN_BORDER, (x + 16, y + 44), (x + w - 16, y + 44), 1)
+        if not entries:
+            draw_text(screen, "暂无记录", x + w // 2, y + 120, fonts, FONT_S, COLOR_GRAY, center=True)
+            return
+        ry = y + 64
+        for i, e in enumerate(entries[:10]):
+            col = COLOR_GOLD if i == 0 else (COLOR_CYAN if i == 1 else COLOR_WHITE)
+            draw_text(screen, f"{i + 1}. {e['name']}", x + 16, ry, fonts, FONT_S, col)
+            draw_text(screen, f"{e['score']} 分 · {e.get('date', '')}",
+                      x + w - 16, ry, fonts, FONT_XS, col, center=True)
+            ry += 34

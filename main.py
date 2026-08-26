@@ -19,6 +19,8 @@ from screens import (
     TwoPlayerSelectScreen,
     TwoPlayScreen,
     P2TankSelectScreen,
+    CarnivalScreen,
+    LeaderboardScreen,
     GarageScreen,
 )
 from save_manager import SaveManager
@@ -97,6 +99,8 @@ class Game:
         self.current_level = 1       # 单人当前关卡
         self.two_mode = "coop"       # 双人模式: coop 或 vs
         self.p2_tank = "轻型侦察车"  # 双人-玩家 2 选定的坦克（开局前在选车界面确认）
+        self.p1_name = "玩家1"       # 双人模式玩家 1 名称（设置界面可改）
+        self.p2_name = "玩家2"       # 双人模式玩家 2 名称（设置界面可改）
 
         # 各界面对象
         self.screens = {
@@ -106,6 +110,8 @@ class Game:
             STATE_TWO_PLAYER_SELECT: TwoPlayerSelectScreen(self),
             STATE_P2_TANK_SELECT: P2TankSelectScreen(self),
             STATE_TWO_PLAY: TwoPlayScreen(self),
+            STATE_CARNIVAL: CarnivalScreen(self),
+            STATE_LEADERBOARD: LeaderboardScreen(self),
             STATE_GARAGE: GarageScreen(self),
         }
 

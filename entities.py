@@ -7,6 +7,7 @@ import pygame
 from constants import *
 from bullets import Bullet
 from vfx import draw_tank
+from controls import ControlState, normalize_angle, angle_to_target
 from powerup import (
     POWERUP_NONE, POWERUP_LASER, POWERUP_BOUNCE,
     POWERUP_SCATTER, POWERUP_SHIELD, POWERUP_DURATION,
@@ -31,6 +32,10 @@ class BaseTank:
 
         # 方向
         self.direction = DIR_UP
+        # 连续炮塔角（弧度，屏幕坐标：up=-pi/2, right=0, down=pi/2, left=±pi）
+        # 操作系统重构核心：转向/移动/开火全部以 turret_angle 为准
+        self.turret_angle = -math.pi / 2.0
+        self._blocked = False   # 上一帧移动是否被阻挡（供 AI 脱困）
 
         # 射击冷却
         self.fire_cooldown = 0.0
@@ -113,21 +118,77 @@ class BaseTank:
         else:
             self.direction = DIR_DOWN if dy > 0 else DIR_UP
 
+    # ============ 连续炮塔角操作系统（2026-08-26）============
+    def get_turret_vector(self):
+        """返回当前炮塔方向的单位向量 (cos a, sin a)（屏幕坐标）。"""
+        return (math.cos(self.turret_angle), math.sin(self.turret_angle))
+
+    def _aim_toward(self, target_angle, dt):
+        """把炮塔角向 target_angle 旋转，单帧最多转 TURRET_TURN_SPEED*dt 弧度。"""
+        diff = normalize_angle(target_angle - self.turret_angle)
+        step = TURRET_TURN_SPEED * dt
+        if abs(diff) <= step:
+            self.turret_angle = target_angle
+        else:
+            self.turret_angle += math.copysign(step, diff)
+
+    def _move_along_turret(self, sign, game_map, other_tanks=None):
+        """沿炮塔方向前进(sign=+1)/后退(sign=-1)。返回是否成功移动。"""
+        vx = math.cos(self.turret_angle) * sign
+        vy = math.sin(self.turret_angle) * sign
+        moved = self.try_move(vx, vy, game_map, other_tanks)
+        self._blocked = (not moved)
+        return moved
+
+    def _sync_direction(self):
+        """把连续炮塔角映射回最近的四方向，供遗留逻辑/绘制兼容。"""
+        a = self.turret_angle % math.tau
+        best, bestd = DIR_UP, 1e9
+        for d, vec in DIR_VECTORS.items():
+            ba = math.atan2(vec[1], vec[0]) % math.tau
+            diff = abs(normalize_angle(a - ba))
+            if diff < bestd:
+                bestd, best = diff, d
+        self.direction = best
+
+    def apply_control(self, control, dt, game_map, other_tanks=None):
+        """统一应用控制意图（人类与 AI 共用此路径）：
+        - turn: 按键旋转（±1）
+        - aim_angle: 鼠标/AI 绝对瞄准角
+        - throttle: 沿炮塔前进/后退
+        不直接处理开火（开火由上层 world 在 can_fire 后调用 shoot），
+        保证人类与 AI 的开火判定完全一致。"""
+        if not self.alive:
+            return
+        if control.turn:
+            self.turret_angle += control.turn * TURRET_TURN_SPEED * dt
+        if control.aim_angle is not None:
+            self._aim_toward(control.aim_angle, dt)
+        if control.throttle:
+            self._move_along_turret(control.throttle, game_map, other_tanks)
+        self._sync_direction()
+
+    def heal(self, amount=HEAL_AMOUNT):
+        """恢复血量（不超过上限）。"""
+        if not self.alive:
+            return
+        self.hp = min(self.max_hp, self.hp + amount)
+
     def can_fire(self):
         return self.alive and self.fire_cooldown <= 0.0
 
     def fire(self):
-        """调用后设置冷却，返回炮口位置+方向向量"""
+        """调用后设置冷却，返回炮口位置 + 单位方向向量 + 炮塔角（连续角度）"""
         if not self.can_fire():
             return None
         self.fire_cooldown = self.fire_cooldown_max
-        vx, vy = DIR_VECTORS[self.direction]
+        vx = math.cos(self.turret_angle)
+        vy = math.sin(self.turret_angle)
         half = TANK_SIZE // 2
-        # 炮口略超出坦克碰撞半径（half+4=21 < 半径5可触及的17+5=22），
-        # 避免子弹出生瞬间误判命中发射者自身（友军伤害仍对反弹回来的子弹生效）。
+        # 炮口略超出坦克碰撞半径，避免子弹出生瞬间误判命中发射者自身
         bx = self.x + vx * (half + 6)
         by = self.y + vy * (half + 6)
-        return (bx, by, vx, vy, self.direction)
+        return (bx, by, vx, vy, self.turret_angle)
 
     def shoot(self, bullet_speed=None):
         """根据当前激活道具集合生成子弹（2026-08-23 叠加版），返回 Bullet 列表。
@@ -143,7 +204,7 @@ class BaseTank:
         f = self.fire()
         if f is None:
             return []
-        bx, by, vx, vy, _d = f
+        bx, by, vx, vy, _angle = f
         active = self.get_active_powerups()
         speed = bullet_speed if bullet_speed is not None else BULLET_SPEED
         bullets = []
@@ -165,9 +226,9 @@ class BaseTank:
         pierce_walls = has_laser and not has_bounce
         bounces = has_bounce
 
-        # 数量合成：散射 → 3 发扇形；否则单发
+        # 数量合成：散射 → 3 发扇形（±15°）；否则单发。基准角取连续炮塔角。
         if has_scatter:
-            base = math.atan2(vy, vx)
+            base = self.turret_angle
             for deg in (-15, 0, 15):
                 rad = base + math.radians(deg)
                 nvx, nvy = math.cos(rad), math.sin(rad)
@@ -198,7 +259,7 @@ class BaseTank:
             self.invulnerable = 0.3
             return False  # 免疫伤害
         self.hp -= dmg
-        self.invulnerable = 0.5
+        self.invulnerable = PLAYER_INVULN_TIME   # 受伤害后一段无敌时间
         self.hit_flash = 1.0   # 受击白闪脉冲（draw 层叠加白光）
         if self.hp <= 0:
             self.alive = False
@@ -265,9 +326,11 @@ class BaseTank:
             return
 
         # 预烘焙坦克精灵（含渐变 / 投影 / 描边 / 炮管高光），命中时叠加白闪；
-        # 履带齿纹按 track_anim 相位切换两帧，形成滚动动画
+        # 履带齿纹按 track_anim 相位切换两帧，形成滚动动画；
+        # 以连续炮塔角 angle 绘制（旋转预烘焙精灵，量化缓存、零每帧分配）
         draw_tank(screen, sx, sy, self.color, self.direction, self.hit_flash,
-                  anim_frame=int(self.track_anim) & 1, style=self.tank_style)
+                  anim_frame=int(self.track_anim) & 1, style=self.tank_style,
+                  angle=self.turret_angle)
 
         # 护盾圈（动态绘制，薄环）
         if self.shield_active:
@@ -308,85 +371,44 @@ class EnemyTank(BaseTank):
         self.ai_state = EnemyTank.STATE_PATROL
         self.ai_timer = 0.0
         self.patrol_dir = DIR_DOWN
+        self.last_hit_by = None   # 最后命中它的玩家坦克（用于双人 vsAI 计分归属）
         # 第1关攻击频率等全部由 level_config 的 enemy_fire_cd 直接指定
         self.fire_cooldown_max = cfg["enemy_fire_cd"] * ENEMY_FIRE_CD_SCALE
         # 生成点出生保护
         self.invulnerable = 1.2
 
-    def ai_step(self, dt, player, game_map, other_tanks):
-        """执行AI决策，返回 ('move', dx, dy) 或 ('fire',) 或 ('none',)"""
-        if not self.alive or not player.alive:
-            return ("none",)
-
-        self.ai_timer += dt
-        # 玩家距离判断
-        dx_p = player.x - self.x
-        dy_p = player.y - self.y
-        dist_p = math.hypot(dx_p, dy_p)
-        in_sight = dist_p < ENEMY_DETECT_RANGE * ENEMY_DETECT_SCALE
-
-        # 检查和玩家是否在同一行/列（可直接射击）
-        aligned_x = abs(dy_p) < TANK_SIZE * 0.6
-        aligned_y = abs(dx_p) < TANK_SIZE * 0.6
-
-        if in_sight:
-            self.ai_state = EnemyTank.STATE_CHASE
-        else:
-            if self.ai_state == EnemyTank.STATE_CHASE:
-                self.ai_state = EnemyTank.STATE_PATROL
-                self.ai_timer = 0.0
-
-        if self.ai_state == EnemyTank.STATE_PATROL:
-            # 巡逻：固定方向，撞墙/定时更换
-            if self.ai_timer > ENEMY_PATROL_CHANGE_TIME:
-                self.ai_timer = 0.0
-                self.patrol_dir = (self.patrol_dir + 1) % 4
-            vx, vy = DIR_VECTORS[self.patrol_dir]
-            self.direction = self.patrol_dir
-            moved = self.try_move(vx, vy, game_map, other_tanks)
-            if not moved:
-                # 撞墙，立即换方向
-                self.patrol_dir = (self.patrol_dir + 1) % 4
-                self.ai_timer = 0.0
-            # 小概率射击
-            if self.can_fire() and dist_p < ENEMY_DETECT_RANGE * 1.5 * ENEMY_DETECT_SCALE:
-                return ("fire",)
-            return ("none",)
-
-        else:  # CHASE
-            # 优先调整朝向对准玩家
-            if aligned_x:
-                self.direction = DIR_RIGHT if dx_p > 0 else DIR_LEFT
-            elif aligned_y:
-                self.direction = DIR_DOWN if dy_p > 0 else DIR_UP
-            else:
-                # 选择差距更大的轴作为方向
-                if abs(dx_p) > abs(dy_p):
-                    self.direction = DIR_RIGHT if dx_p > 0 else DIR_LEFT
-                else:
-                    self.direction = DIR_DOWN if dy_p > 0 else DIR_UP
-
-            # 如果对齐了，优先开火
-            if (aligned_x or aligned_y) and self.can_fire():
-                # 做一个简单的视线检查（无障碍就能开火）
-                if self._has_line_of_sight(player, game_map):
-                    # 命中率：即使能开火也按概率决定是否真正射击
-                    if random.random() < ENEMY_AIM_CHANCE:
-                        return ("fire",)
-
-            # 向玩家靠近（基于方向移动，每次一格方向）
-            mv = DIR_VECTORS[self.direction]
-            speed_factor = ENEMY_CHASE_SPEED_FACTOR
-            # 用 try_move 的速度缩放：先临时降速
-            orig = self.speed_val
-            self.speed_val = orig * speed_factor
-            self.try_move(mv[0], mv[1], game_map, other_tanks)
-            self.speed_val = orig
-            return ("none",)
+    def decide_control(self, dt, target, game_map, other_tanks=None):
+        """产出 ControlState，与人类输入共用 apply_control —— 实现「AI 操作逻辑与人类一致」。
+        - 始终瞄准最近目标（apply_control 会按限速转向）；
+        - 距离过远则前进靠近；卡墙则旋转脱困；
+        - 对准（角度差小）且有视线、冷却就绪时按概率开火。"""
+        ctrl = ControlState()
+        if not self.alive or not target.alive:
+            return ctrl
+        dx = target.x - self.x
+        dy = target.y - self.y
+        dist = math.hypot(dx, dy)
+        desired = math.atan2(dy, dx)          # 屏幕坐标角度
+        ctrl.aim_angle = desired               # 瞄准目标
+        if dist > ENEMY_AI_KEEP_DIST:
+            ctrl.throttle = 1                  # 靠近
+        # 卡墙脱困：上一帧想动却没动 → 旋转一下再尝试
+        if self._blocked:
+            if not hasattr(self, "_unstick"):
+                self._unstick = 1.0
+            ctrl.turn = self._unstick
+            if random.random() < 0.04:
+                self._unstick *= -1.0
+        # 开火判定：对准 + 视线无阻挡 + 冷却就绪（概率模拟命中率）
+        diff = abs(normalize_angle(desired - self.turret_angle))
+        if diff < ENEMY_AI_FIRE_CONE and self.can_fire() and random.random() < ENEMY_AIM_CHANCE:
+            if self._has_line_of_sight(target, game_map):
+                ctrl.fire = True
+        return ctrl
 
     def _has_line_of_sight(self, player, game_map):
-        """沿当前朝向，检查中间是否有钢墙/砖墙阻挡视线"""
-        vx, vy = DIR_VECTORS[self.direction]
+        """沿当前炮塔朝向，检查中间是否有钢墙/砖墙阻挡视线。"""
+        vx, vy = self.get_turret_vector()
         t = 0.0
         step = 8.0
         max_t = ENEMY_DETECT_RANGE

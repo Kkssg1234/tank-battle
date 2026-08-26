@@ -12,6 +12,7 @@ from powerup import PowerUpManager
 from level_config import get_level_config, LEVEL_ENEMY_COUNTS
 from vfx import ScreenShake, draw_glow, draw_explosion, draw_vignette
 from particles import ParticleSystem
+from controls import ControlState
 
 
 class Explosion:
@@ -85,10 +86,8 @@ class GameWorld:
         clear_particles()
         clear_ricochet()
 
-        # 玩家输入状态（每帧外部设置）
-        self.input_dx = 0
-        self.input_dy = 0
-        self.input_fire = False
+        # 玩家输入状态（每帧外部设置 ControlState）
+        self.input_control = ControlState()
 
         # 屏幕震动控制器（大爆炸时触发）
         self.shake = ScreenShake()
@@ -138,10 +137,9 @@ class GameWorld:
         return False
 
     # ========= 输入接口 =========
-    def set_input(self, dx, dy, fire):
-        self.input_dx = int(dx)
-        self.input_dy = int(dy)
-        self.input_fire = bool(fire)
+    def set_input(self, control):
+        """外部每帧设置玩家 ControlState（统一控制接口）。"""
+        self.input_control = control
 
     # ========= 主更新 =========
     def update(self, dt):
@@ -158,14 +156,10 @@ class GameWorld:
 
         # ---- 玩家 ----
         if self.player.alive:
-            # 设置朝向
-            if self.input_dx != 0 or self.input_dy != 0:
-                self.player.set_direction_by_keydir(self.input_dx, self.input_dy)
-            # 移动
-            self.player.try_move(self.input_dx, self.input_dy,
-                                 self.game_map, [self.player] + self.enemies)
-            # 射击
-            if self.input_fire and self.player.can_fire():
+            # 统一控制接口：apply_control 处理 转向/瞄准/移动；开火单独判定
+            self.player.apply_control(self.input_control, dt, self.game_map,
+                                     [self.player] + self.enemies)
+            if self.input_control.fire and self.player.can_fire():
                 self._player_fire()
 
         self.player.update(dt)
@@ -173,13 +167,14 @@ class GameWorld:
         # ---- 道具系统（刷新/拾取/计时）----
         self.powerup_manager.update(dt, [self.player], self.game_map)
 
-        # ---- 敌人 AI ----
+        # ---- 敌人 AI（与人类共用 apply_control，操作逻辑一致）----
         all_tanks = [self.player] + self.enemies
         for enemy in self.enemies:
             if not enemy.alive:
                 continue
-            action = enemy.ai_step(dt, self.player, self.game_map, all_tanks)
-            if action and action[0] == "fire" and enemy.can_fire():
+            ctrl = enemy.decide_control(dt, self.player, self.game_map, all_tanks)
+            enemy.apply_control(ctrl, dt, self.game_map, all_tanks)
+            if ctrl.fire and enemy.can_fire():
                 # 第1关敌人子弹降速（仅第1关），其余关卡与玩家子弹保持原速
                 enemy_speed = (BULLET_SPEED * LEVEL1_ENEMY_BULLET_SPEED_MULT
                                if self.level == 1 else BULLET_SPEED) * ENEMY_BULLET_SPEED_MULT
@@ -253,8 +248,8 @@ class GameWorld:
             self._emit_muzzle(self.player)
 
     def _emit_muzzle(self, tank):
-        """在坦克炮口生成炮口火焰粒子（朝射击方向）。"""
-        vx, vy = DIR_VECTORS[tank.direction]
+        """在坦克炮口生成炮口火焰粒子（朝连续炮塔方向）。"""
+        vx, vy = tank.get_turret_vector()
         half = TANK_SIZE // 2
         mx = tank.x + vx * (half + 6)
         my = tank.y + vy * (half + 6)
@@ -303,39 +298,72 @@ class GameWorld:
         # 竞技场暗角（vignette）：最后 blit 一次，营造纵深聚焦
         draw_vignette(screen, arena_x, arena_y, ARENA_W, ARENA_H)
 
+class CarnivalGameWorld(GameWorld):
+    """道具狂欢模式：无尽生存 + 道具刷新量/频率大幅提升 + 实时计分。
+    敌人随击杀数递增难度、持续生成（无通关，玩家阵亡即结束）。"""
+
+    def __init__(self, tank_name, fonts):
+        # 用第 1 关地图作基底（开阔），敌人难度随击杀递增
+        super().__init__(level=1, tank_name=tank_name, fonts=fonts)
+        # 狂欢：道具系统切换为高频多量
+        self.powerup_manager = PowerUpManager(self.game_map, mode="carnival")
+        # 无尽：敌人总数视为无限，持续生成（不会触发通关）
+        self.total_enemies = 10 ** 9
+
+    def _spawn_level_for_kills(self):
+        # 难度随击杀数缓增（1..12）
+        return min(12, 1 + self.enemies_killed // 6)
+
+    def _try_spawn_enemy(self):
+        if len(self.enemies) >= 5:
+            return False
+        for i in range(3):
+            x, y = self.enemy_spawn_points[(self._enemy_spawn_idx + i) % 3]
+            occupied = False
+            for t in [self.player] + self.enemies:
+                if not t.alive:
+                    continue
+                if math.hypot(t.x - x, t.y - y) < TILE_SIZE * 1.1:
+                    occupied = True
+                    break
+            if not occupied:
+                lvl = self._spawn_level_for_kills()
+                enemy = EnemyTank(x, y, lvl)
+                self.enemies.append(enemy)
+                self.enemies_spawned += 1
+                self._enemy_spawn_idx = (self._enemy_spawn_idx + i + 1) % 3
+                return True
+        return False
+
+    def update(self, dt):
+        super().update(dt)
+        # 无尽补充：保持场上始终有敌人（极端情况同帧清空时立即补）
+        if self.result == GameWorld.RESULT_NONE and len(self.enemies) == 0:
+            self._try_spawn_enemy()
+
 
 class TwoPlayerGameWorld:
-    """
-    双人游戏世界：支持合作(coop)与对战(vs)两种子模式
-    """
-    RESULT_NONE = "none"
-    RESULT_WIN = "win"        # 合作：全歼敌人
-    RESULT_LOSE = "lose"      # 合作：任一玩家死亡
-    RESULT_P1_WIN = "p1_win"  # 对战：玩家 2 死亡
-    RESULT_P2_WIN = "p2_win"  # 对战：玩家 1 死亡
+    """双人 vs AI（无尽）模式：两名人类玩家合作对抗持续生成的 AI 坦克。
+    - 双方独立实时积分（按击杀归属）；
+    - 支持自定义命名（p1_name / p2_name）；
+    - 排行榜由各界面在结束后写入存档；
+    - AI 与人类共用 apply_control，操作逻辑一致。"""
 
-    def __init__(self, mode, level, tank1_name, tank2_name, fonts):
-        """
-        mode: "coop" 或 "vs"
-        level: 合作模式使用（对战模式忽略，传 1 即可）
-        tank1_name, tank2_name: 两个玩家选择的坦克名称
-        """
-        self.mode = mode
-        self.level = level
+    RESULT_NONE = "none"
+    RESULT_LOSE = "lose"   # 双方阵亡即结束（无尽模式无胜利）
+
+    def __init__(self, p1_name, p2_name, tank1_name, tank2_name, fonts):
+        self.p1_name = p1_name
+        self.p2_name = p2_name
+        self.tank1_name = tank1_name
+        self.tank2_name = tank2_name
         self.fonts = fonts
         self.result = TwoPlayerGameWorld.RESULT_NONE
-        self.score = 0          # 合作模式共用得分；对战模式显示击杀数
         self.time = 0.0
+        self.kills = 0   # 累计 AI 击杀数
 
-        # 地图（合作模式用关卡地图，对战模式用第 6 关适中地图）
-        if mode == "coop":
-            self.game_map = MapGenerator().generate(get_level_config(level), fonts)
-            self.total_enemies = LEVEL_ENEMY_COUNTS.get(level, 3) + COOP_EXTRA_ENEMIES
-        else:
-            # 对战模式：用第 6 关的随机地图生成器（障碍适中）
-            self.game_map = MapGenerator().generate(get_level_config(6), fonts)
-            self.total_enemies = 0
-
+        # 地图：用第 6 关适中地图
+        self.game_map = MapGenerator().generate(get_level_config(6), fonts)
         self.enemies_killed = 0
         self.enemies_spawned = 0
         self.spawn_cooldown = 1.2
@@ -344,58 +372,51 @@ class TwoPlayerGameWorld:
         p1x = (2 + 1) * TILE_SIZE + TILE_SIZE // 2
         p1y = (TILE_ROWS - 3) * TILE_SIZE + TILE_SIZE // 2
         self.player1 = PlayerTank(p1x, p1y, tank1_name)
-
         # 玩家 2 出生右下
         self.player2 = PlayerTank(P2_SPAWN_X, P2_SPAWN_Y, tank2_name)
-
         self.players = [self.player1, self.player2]
 
         self.enemies = []
         self.bullets = []
         self.explosions = []
-        # 轻量级粒子系统（炮口火焰 / 爆炸碎片）
         self.particles = ParticleSystem()
-
-        # 道具系统（对战模式也启用道具箱，增加变数）
-        self.powerup_manager = PowerUpManager(self.game_map)
+        # 双人 vsAI 也享用较多道具，节奏更热闹
+        self.powerup_manager = PowerUpManager(self.game_map, mode="carnival")
         clear_particles()
         clear_ricochet()
 
-        # 输入状态（外部每帧设置）
-        self.p1_input = {"dx": 0, "dy": 0, "fire": False}
-        self.p2_input = {"dx": 0, "dy": 0, "fire": False}
+        # 玩家独立实时积分
+        self.scores = {p1_name: 0, p2_name: 0}
 
-        # 屏幕震动控制器（大爆炸时触发）
+        # 输入（外部每帧设置 ControlState）
+        self.p1_control = ControlState()
+        self.p2_control = ControlState()
+
         self.shake = ScreenShake()
 
-        # 敌人生成点（合作模式）
-        if mode == "coop":
-            self.enemy_spawn_points = [
-                ((2 + 1) * TILE_SIZE + TILE_SIZE // 2, 2 * TILE_SIZE + TILE_SIZE // 2),
-                ((TILE_COLS // 2) * TILE_SIZE + TILE_SIZE // 2, 2 * TILE_SIZE + TILE_SIZE // 2),
-                ((TILE_COLS - 4) * TILE_SIZE + TILE_SIZE // 2, 2 * TILE_SIZE + TILE_SIZE // 2),
-            ]
-            self._enemy_spawn_idx = 0
-            self._spawn_initial_enemies()
+        # 敌人出生点
+        self.enemy_spawn_points = [
+            ((2 + 1) * TILE_SIZE + TILE_SIZE // 2, 2 * TILE_SIZE + TILE_SIZE // 2),
+            ((TILE_COLS // 2) * TILE_SIZE + TILE_SIZE // 2, 2 * TILE_SIZE + TILE_SIZE // 2),
+            ((TILE_COLS - 4) * TILE_SIZE + TILE_SIZE // 2, 2 * TILE_SIZE + TILE_SIZE // 2),
+        ]
+        self._enemy_spawn_idx = 0
+        self._spawn_initial_enemies()
 
     # ========= 输入接口 =========
-    def set_input(self, p1_dx, p1_dy, p1_fire, p2_dx, p2_dy, p2_fire):
-        self.p1_input = {"dx": p1_dx, "dy": p1_dy, "fire": p1_fire}
-        self.p2_input = {"dx": p2_dx, "dy": p2_dy, "fire": p2_fire}
+    def set_input(self, p1_control, p2_control):
+        self.p1_control = p1_control
+        self.p2_control = p2_control
 
-    # ========= 敌人生成（仅合作模式） =========
+    # ========= 敌人生成（无尽） =========
     def _spawn_initial_enemies(self):
-        first = min(2, self.total_enemies)
-        for _ in range(first):
+        for _ in range(2):
             self._try_spawn_enemy()
 
     def _try_spawn_enemy(self):
-        if self.mode != "coop":
+        if len(self.enemies) >= VS_AI_MAX_ENEMIES:
             return False
-        if self.enemies_spawned >= self.total_enemies:
-            return False
-        if len(self.enemies) >= 5:  # 合作模式同时在场最多 5 个
-            return False
+        lvl = min(12, 1 + self.enemies_killed // 8)   # 难度随击杀增加
         for i in range(3):
             x, y = self.enemy_spawn_points[(self._enemy_spawn_idx + i) % 3]
             occupied = False
@@ -406,7 +427,7 @@ class TwoPlayerGameWorld:
                     occupied = True
                     break
             if not occupied:
-                enemy = EnemyTank(x, y, self.level)
+                enemy = EnemyTank(x, y, lvl)
                 self.enemies.append(enemy)
                 self.enemies_spawned += 1
                 self._enemy_spawn_idx = (self._enemy_spawn_idx + i + 1) % 3
@@ -415,7 +436,7 @@ class TwoPlayerGameWorld:
 
     # ========= 主更新 =========
     def update(self, dt):
-        self.shake.update(dt)  # 屏幕震动始终推进
+        self.shake.update(dt)
         if self.result != TwoPlayerGameWorld.RESULT_NONE:
             for e in self.explosions:
                 e.update(dt)
@@ -424,71 +445,58 @@ class TwoPlayerGameWorld:
             return
 
         self.time += dt
-
         all_tanks = self.players + self.enemies
 
         # ---- 玩家 1 ----
         if self.player1.alive:
-            p1 = self.p1_input
-            if p1["dx"] != 0 or p1["dy"] != 0:
-                self.player1.set_direction_by_keydir(p1["dx"], p1["dy"])
-            self.player1.try_move(p1["dx"], p1["dy"], self.game_map, all_tanks)
-            if p1["fire"] and self.player1.can_fire():
+            self.player1.apply_control(self.p1_control, dt, self.game_map, all_tanks)
+            if self.p1_control.fire and self.player1.can_fire():
                 self.bullets.extend(self.player1.shoot())
                 self._emit_muzzle(self.player1)
         self.player1.update(dt)
 
         # ---- 玩家 2 ----
         if self.player2.alive:
-            p2 = self.p2_input
-            # 鼠标控制：p2_input 中 dx,dy 已经是归一化向量（Screen层计算）
-            if abs(p2["dx"]) > 0.01 or abs(p2["dy"]) > 0.01:
-                # 设置朝向（4方向）
-                target_x = self.player2.x + p2["dx"] * 100
-                target_y = self.player2.y + p2["dy"] * 100
-                self.player2.set_direction_toward(target_x, target_y)
-                self.player2.try_move(p2["dx"], p2["dy"], self.game_map, all_tanks)
-            if p2["fire"] and self.player2.can_fire():
+            self.player2.apply_control(self.p2_control, dt, self.game_map, all_tanks)
+            if self.p2_control.fire and self.player2.can_fire():
                 self.bullets.extend(self.player2.shoot())
                 self._emit_muzzle(self.player2)
         self.player2.update(dt)
 
-        # ---- 道具系统（对两个玩家都生效）----
+        # ---- 道具系统（对两名玩家都生效）----
         self.powerup_manager.update(dt, self.players, self.game_map)
 
-        # ---- 敌人 AI（仅合作模式）----
-        if self.mode == "coop":
-            for enemy in self.enemies:
-                if not enemy.alive:
-                    continue
-                # 敌人追踪最近的存活玩家
-                target = self._nearest_alive_player(enemy)
-                if target is None:
-                    continue
-                action = enemy.ai_step(dt, target, self.game_map, all_tanks)
-                if action and action[0] == "fire" and enemy.can_fire():
-                    enemy_speed = (BULLET_SPEED * LEVEL1_ENEMY_BULLET_SPEED_MULT
-                                   if self.level == 1 else BULLET_SPEED)
-                    self.bullets.extend(enemy.shoot(bullet_speed=enemy_speed))
-                    self._emit_muzzle(enemy)
-                enemy.update(dt)
+        # ---- 敌人 AI（与人类共用 apply_control，操作逻辑一致）----
+        for enemy in self.enemies:
+            if not enemy.alive:
+                continue
+            target = self._nearest_alive_player(enemy)
+            if target is None:
+                continue
+            ctrl = enemy.decide_control(dt, target, self.game_map, all_tanks)
+            enemy.apply_control(ctrl, dt, self.game_map, all_tanks)
+            if ctrl.fire and enemy.can_fire():
+                enemy_speed = BULLET_SPEED * ENEMY_BULLET_SPEED_MULT
+                self.bullets.extend(enemy.shoot(bullet_speed=enemy_speed))
+                self._emit_muzzle(enemy)
+            enemy.update(dt)
 
-            # 生成新敌人
-            self.spawn_cooldown -= dt
-            if self.spawn_cooldown <= 0:
-                self.spawn_cooldown = 2.0 + (self.total_enemies - self.enemies_spawned) * 0.05
-                self._try_spawn_enemy()
+        # ---- 补充敌人（无尽）----
+        self.spawn_cooldown -= dt
+        if self.spawn_cooldown <= 0:
+            self.spawn_cooldown = VS_AI_SPAWN_COOLDOWN
+            self._try_spawn_enemy()
 
-        # ---- 子弹更新（内置碰撞关闭，改用自定义 _check_bullet_vs_tanks）----
+        # ---- 子弹更新 ----
         alive_bullets = []
         for b in self.bullets:
             b.update(dt, self.game_map, None)
             if not b.alive:
                 continue
             if b.bullet_type == Bullet.LASER and b.beam_mode:
-                # 激光：即时光束——一次性命中沿途坦克，不参与逐帧 _check_bullet_vs_tanks
                 b._resolve_beam(self.game_map, all_tanks)
                 for t in b.beam_hits:
+                    t.last_hit_by = b.owner   # 激光击杀也归属
                     self.explosions.append(Explosion(t.x, t.y, big=False))
                 b.beam_hits.clear()
             else:
@@ -497,18 +505,21 @@ class TwoPlayerGameWorld:
                 alive_bullets.append(b)
         self.bullets = alive_bullets
 
-        # ---- 清理死亡敌人并记分（合作模式）----
-        if self.mode == "coop":
-            remaining = []
-            for e in self.enemies:
-                if e.alive:
-                    remaining.append(e)
-                else:
-                    self.enemies_killed += 1
-                    self.score += 100 + self.level * 20
-                    self.explosions.append(Explosion(e.x, e.y, big=True, on_big=self.shake.add))
-                    self.particles.spawn_explosion(e.x, e.y, None, big=True)
-            self.enemies = remaining
+        # ---- 清理死亡敌人并计分 ----
+        remaining = []
+        for e in self.enemies:
+            if e.alive:
+                remaining.append(e)
+            else:
+                self.enemies_killed += 1
+                self.kills += 1
+                credit = e.last_hit_by
+                if credit in self.players:
+                    name = self.p1_name if credit is self.player1 else self.p2_name
+                    self.scores[name] += 100
+                self.explosions.append(Explosion(e.x, e.y, big=True, on_big=self.shake.add))
+                self.particles.spawn_explosion(e.x, e.y, None, big=True)
+        self.enemies = remaining
 
         # ---- 胜负判定 ----
         self._check_game_over()
@@ -522,7 +533,6 @@ class TwoPlayerGameWorld:
         self.particles.update(dt)
 
     def _nearest_alive_player(self, enemy):
-        """返回距离敌人最近的存活玩家"""
         best = None
         best_d = float('inf')
         for p in self.players:
@@ -534,8 +544,8 @@ class TwoPlayerGameWorld:
         return best
 
     def _emit_muzzle(self, tank):
-        """在坦克炮口生成炮口火焰粒子（朝射击方向）。"""
-        vx, vy = DIR_VECTORS[tank.direction]
+        """在坦克炮口生成炮口火焰粒子（朝连续炮塔方向）。"""
+        vx, vy = tank.get_turret_vector()
         half = TANK_SIZE // 2
         mx = tank.x + vx * (half + 6)
         my = tank.y + vy * (half + 6)
@@ -543,7 +553,6 @@ class TwoPlayerGameWorld:
 
     def _check_bullet_vs_tanks(self, bullet):
         """子弹与所有坦克碰撞：players + enemies"""
-        # vs 所有玩家（含友军伤害）
         for p in self.players:
             if not p.alive or id(p) in bullet.hit_tanks:
                 continue
@@ -551,23 +560,18 @@ class TwoPlayerGameWorld:
                 self._apply_bullet_to_tank(bullet, p)
                 if not bullet.alive:
                     return
-        # vs 敌人（仅合作模式）
-        if self.mode == "coop":
-            for e in self.enemies:
-                if not e.alive or id(e) in bullet.hit_tanks:
-                    continue
-                if bullet.get_rect().colliderect(e.get_rect()):
-                    self._apply_bullet_to_tank(bullet, e)
-                    if not bullet.alive:
-                        return
+        for e in self.enemies:
+            if not e.alive or id(e) in bullet.hit_tanks:
+                continue
+            if bullet.get_rect().colliderect(e.get_rect()):
+                self._apply_bullet_to_tank(bullet, e)
+                if not bullet.alive:
+                    return
 
     def _apply_bullet_to_tank(self, bullet, tank):
-        """处理子弹击中坦克的伤害逻辑（含友军伤害 + 跳弹机制）"""
-        # 跳弹：先尝试弹开（不造成伤害，随机偏转，保留杀伤力）
+        """处理子弹击中坦克的伤害逻辑（含友军伤害 + 跳弹机制 + 击杀归属）"""
         if bullet.try_ricochet(tank):
             return
-        # 跳弹后的子弹（ricocheted=True, owner=None）：不区分敌我，命中任意坦克即造成伤害
-        # （含发射者自身 / 友军 / 敌人），满足"保持杀伤力、不区分敌我"需求
         if bullet.ricocheted:
             damaged = tank.take_damage(bullet.damage)
             bullet.alive = False
@@ -575,25 +579,19 @@ class TwoPlayerGameWorld:
                 self.explosions.append(Explosion(tank.x, tank.y, big=False))
             return
 
-        # 判定是否应造成伤害
         hit = False
-
-        # 敌人子弹打玩家
         if bullet.owner_type == "enemy" and tank.owner == "player":
             hit = True
-        # 玩家子弹打敌人（合作模式）
         elif bullet.owner_type == "player" and tank.owner == "enemy":
             hit = True
-        # 玩家子弹打玩家（友军伤害 / 对战模式 / 自伤）
+            tank.last_hit_by = bullet.owner   # 记录击杀归属（双人计分）
         elif bullet.owner_type == "player" and tank.owner == "player":
             if bullet.owner is tank:
-                # 自己打自己：只有弹射弹反弹后才造成伤害
                 if bullet.bullet_type == Bullet.BOUNCE:
                     hit = True
                 else:
                     return
             else:
-                # 打中另一个玩家：对战模式必然伤害；合作模式也伤害（友军伤害开启）
                 hit = True
 
         if not hit:
@@ -615,67 +613,32 @@ class TwoPlayerGameWorld:
             self.explosions.append(Explosion(tank.x, tank.y, big=False))
 
     def _check_game_over(self):
-        """胜负判定"""
-        if self.mode == "coop":
-            # 任一玩家死亡 = 失败
-            if not self.player1.alive or not self.player2.alive:
-                dead = self.player1 if not self.player1.alive else self.player2
-                self.explosions.append(Explosion(dead.x, dead.y, big=True, on_big=self.shake.add))
-                self.particles.spawn_explosion(dead.x, dead.y, None, big=True)
-                self.result = TwoPlayerGameWorld.RESULT_LOSE
-                return
-            # 全歼敌人 = 胜利
-            if self.enemies_killed >= self.total_enemies and len(self.enemies) == 0:
-                self.result = TwoPlayerGameWorld.RESULT_WIN
-        else:
-            # 对战模式
-            if not self.player1.alive and self.player2.alive:
-                self.particles.spawn_explosion(self.player1.x, self.player1.y, None, big=True)
-                self.result = TwoPlayerGameWorld.RESULT_P2_WIN
-            elif not self.player2.alive and self.player1.alive:
-                self.particles.spawn_explosion(self.player2.x, self.player2.y, None, big=True)
-                self.result = TwoPlayerGameWorld.RESULT_P1_WIN
-            # 同时死亡（极罕见）：判平局，视为 RESULT_LOSE 或重赛，这里判 RESULT_LOSE
-            elif not self.player1.alive and not self.player2.alive:
-                self.particles.spawn_explosion(self.player1.x, self.player1.y, None, big=True)
-                self.particles.spawn_explosion(self.player2.x, self.player2.y, None, big=True)
-                self.result = TwoPlayerGameWorld.RESULT_LOSE
+        if not self.player1.alive and not self.player2.alive:
+            dead = self.player1 if not self.player1.alive else self.player2
+            self.particles.spawn_explosion(dead.x, dead.y, None, big=True)
+            self.result = TwoPlayerGameWorld.RESULT_LOSE
 
-    # ========= 统计 =========
     def remaining_enemies(self):
-        if self.mode != "coop":
-            return 0
-        return self.total_enemies - self.enemies_killed
+        return 0
 
     # ========= 绘制 =========
     def draw(self, screen, arena_x, arena_y, fonts):
-        # 屏幕震动：整体偏移竞技场坐标（仅影响本帧绘制，不改逻辑坐标）
         ox, oy = self.shake.offset()
         arena_x += int(ox)
         arena_y += int(oy)
-        # 地图
         self.game_map.draw(screen, arena_x, arena_y)
-        # 道具箱
         self.powerup_manager.draw(screen, self.time)
-        # 外框
         pygame.draw.rect(screen, ARENA_BORDER,
                          (arena_x, arena_y, ARENA_W, ARENA_H), width=2, border_radius=4)
-        # 坦克
         for p in self.players:
             p.draw(screen, arena_x, arena_y)
         for e in self.enemies:
             e.draw(screen, arena_x, arena_y)
-        # 子弹
         for b in self.bullets:
             b.draw(screen, arena_x, arena_y)
-        # 粒子（弹射反弹白点等）
         draw_particles(screen, arena_x, arena_y)
-        # 轻量级粒子（炮口火焰 / 爆炸碎片）
         self.particles.draw(screen, arena_x, arena_y)
-        # 跳弹环形闪光反馈
         draw_ricochet(screen, arena_x, arena_y)
-        # 爆炸
         for e in self.explosions:
             e.draw(screen, arena_x, arena_y)
-        # 竞技场暗角（vignette）：最后 blit 一次，营造纵深聚焦
         draw_vignette(screen, arena_x, arena_y, ARENA_W, ARENA_H)

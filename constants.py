@@ -90,6 +90,8 @@ STATE_P2_TANK_SELECT = "p2_tank_select"  # 双人-玩家 2 选坦克
 STATE_TWO_PLAY = "two_play"          # 双人-游戏中
 STATE_GARAGE = "garage"              # 车库
 STATE_RESULT = "result"              # 结算界面
+STATE_CARNIVAL = "carnival"          # 道具狂欢：无尽 + 大量道具 + 计分
+STATE_LEADERBOARD = "leaderboard"    # 排行榜（狂欢/双人对抗 AI 双榜）
 
 # ===== 跳弹机制（2026-08-23）=====
 # 子弹击中坦克时按此概率弹开：不发生伤害，飞向随机方向，偏转后保留杀伤力且不区分敌我。
@@ -180,6 +182,7 @@ ITEM_DATA = {
     "bounce": {"name": "弹射弹", "icon": "green", "color": COLOR_GREEN, "desc": "子弹弹射2次，注意误伤"},
     "scatter": {"name": "散射弹", "icon": "blue", "color": COLOR_BLUE, "desc": "一次发射3发扇形子弹"},
     "shield": {"name": "护盾", "icon": "yellow", "color": COLOR_YELLOW, "desc": "免疫下一次伤害"},
+    "heal": {"name": "修复包", "icon": "plus", "color": (140, 240, 150), "desc": "恢复 2 点血量"},
 }
 
 # ===== 关卡数量 =====
@@ -275,6 +278,9 @@ ENEMY_FIRE_CD_SCALE = 1.30      # 开火冷却放大 → 攻击频率↓
 ENEMY_DETECT_SCALE = 0.85       # 侦测/反应距离缩短 → 反应速度↓
 ENEMY_AIM_CHANCE = 0.80         # “能开火”时实际开火概率 → 命中率/输出↓
 ENEMY_BULLET_SPEED_MULT = 0.85  # 敌人子弹速度系数 → 更易躲避（攻击威胁↓）
+# AI 行为参数（与人类共用同一控制接口，保证操作逻辑一致）
+ENEMY_AI_KEEP_DIST = 140.0      # 与玩家保持距离（超过则前进靠近）
+ENEMY_AI_FIRE_CONE = 0.26       # 开火角度容差（弧度，≈15°）
 
 # 爆炸特效
 EXPLOSION_DURATION = 0.45
@@ -309,5 +315,25 @@ MOUSE_CONTROL_DEADZONE = 12  # 鼠标控制死区（像素）
 
 # 玩家 2 默认坦克（双人模式 P2 固定使用，蓝色区分）
 P2_TANK_NAME = "轻型侦察车"
+
+# ===== 操作系统（2026-08-26 重构：连续炮塔角 + 统一控制接口）=====
+# 炮塔旋转速度（弧度/秒）：AD 键 / AI 转向共用同速，保证「AI 与人类操作一致」
+TURRET_TURN_SPEED = 3.4
+# 鼠标拖拽判定：拖拽位移超过此阈值 → 视为「前进」；介于死区与阈值之间 → 视为「瞄准炮塔」
+DRAG_MOVE_THRESHOLD = 38.0
+DRAG_AIM_DEADZONE = 6.0
+# 受伤害后无敌时间（秒）：所有玩家坦克命中后获得一段无敌闪烁，避免连环秒杀
+PLAYER_INVULN_TIME = 1.0
+# 恢复道具回血量（不超过 max_hp）
+HEAL_AMOUNT = 2
+
+# ===== 道具狂欢模式调优 =====
+CARNIVAL_MAX_BOXES = 8            # 场上同时存在道具箱上限（普通模式 3）
+CARNIVAL_SPAWN_MIN = 2.0          # 刷新间隔（秒）下界（普通 10）
+CARNIVAL_SPAWN_MAX = 3.5          # 刷新间隔（秒）上界（普通 15）
+
+# ===== 双人 vs AI（无尽）模式参数 =====
+VS_AI_MAX_ENEMIES = 4             # 场上同时存在 AI 坦克上限
+VS_AI_SPAWN_COOLDOWN = 1.6        # AI 阵亡后重新生成间隔（秒）
 
 from level_config import LEVELS, TOTAL_LEVELS, get_level_config
