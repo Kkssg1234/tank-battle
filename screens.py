@@ -1340,7 +1340,9 @@ class TwoPlayScreen:
         p1_ctrl = build_p1_control(keys, False, False, (0, 0), (0, 0),
                                    self.world.player1)
         # 玩家 2：鼠标（圆内瞄准 / 圆外移动 · 左键开火）
-        mp = pygame.mouse.get_pos()
+        # 经 map_mouse 把显示分辨率坐标映射回 960x640 画布坐标，
+        # 解决全屏/缩放模式下「系统鼠标位置 ≠ 游戏内鼠标位置」的偏移问题
+        mp = self.game.map_mouse(pygame.mouse.get_pos())
         p2_ctrl, p2_mode = build_p2_mouse_control(mp, self.world.player2, self.mouse_down)
         self.p2_crosshair_mode = p2_mode
         self.world.set_input(p1_ctrl, p2_ctrl)
@@ -1370,6 +1372,8 @@ class TwoPlayScreen:
         w = self.world
         p1_name = self.game.p1_name or "玩家1"
         p2_name = self.game.p2_name or "玩家2"
+        # 进行中且 P2 存活 → 隐藏系统指针，仅显示自定义准星；其余情况恢复以便点击按钮
+        pygame.mouse.set_visible(not (self.result_popup is None and w.player2.alive))
 
         # ---- 游戏世界 ----
         w.draw(screen, ARENA_X, ARENA_Y, fonts)
@@ -1439,7 +1443,8 @@ class TwoPlayScreen:
             tsy = ARENA_Y + int(w.player2.y)
             ring = _get_p2_ring(P2_MOUSE_RADIUS, P2_CROSSHAIR_COLOR)
             screen.blit(ring, (tsx - ring.get_width() // 2, tsy - ring.get_height() // 2))
-            mp = pygame.mouse.get_pos()
+            # 同样经 map_mouse 映射，保证准星与系统光标位置严格对齐
+            mp = self.game.map_mouse(pygame.mouse.get_pos())
             col = P2_CROSSHAIR_COLOR
             if self.p2_crosshair_mode == "aim":
                 # 圆内：转向/瞄准 → 十字准星

@@ -129,6 +129,8 @@ class Game:
         screen = self.screens.get(new_state)
         if screen and hasattr(screen, "enter"):
             screen.enter()
+        # 切屏时恢复系统鼠标指针（双人模式在游戏进行中会隐藏，避免遗留隐藏状态）
+        pygame.mouse.set_visible(True)
         # 触发 0.15s 黑屏淡入过渡（新界面从黑幕中淡现）
         self.transition = 0.15
 
