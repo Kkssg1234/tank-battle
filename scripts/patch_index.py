@@ -44,10 +44,14 @@ def patch(path: str) -> None:
 
     orig = s
 
-    # 0) 自托管 pygbag 运行时：把外部 CDN(pygame-web.github.io) 改写为同源相对路径。
-    #    用户网络无法访问该 CDN 时整页会卡在 "Downloading..."；运行时已由 vendor/cdn 随仓库部署，
-    #    改走 ./cdn/ 后浏览器只与自己的 GitHub Pages 同源通信，即可正常加载。
-    s = s.replace("https://pygame-web.github.io/cdn/", "./cdn/")
+    # 0) 自托管 pygbag 运行时：把外部 CDN(pygame-web.github.io) 改写为【同源绝对地址】。
+    #    用户网络无法访问该 CDN 时整页会卡在 "Downloading..."；运行时已由 vendor/cdn 随仓库部署。
+    #    必须用【绝对】同源地址（而非相对 ./cdn/）：vtx.js 内部用 config.cdn + "../vt/" 拼终端路径，
+    #    若 config.cdn 是相对路径，会以 vtx.js 自身位置(cdn/vtx.js)为基准再叠加一层 cdn，
+    #    解析成 cdn/cdn/vt/ 导致 xterm 404。绝对地址可避免该相对叠加。
+    s = s.replace("https://pygame-web.github.io/cdn/", "https://kkssg1234.github.io/tank-battle/cdn/")
+    # 0.1) 兜底：清掉任何残留的裸 pygame-web 主机引用（如 preconnect），统一指向同源根。
+    s = s.replace("https://pygame-web.github.io", "https://kkssg1234.github.io/tank-battle")
 
     # 1) 注入 DOCTYPE，消除 Quirks Mode（根因之一：画布高度塌缩导致黑屏）
     if not re.match(r"^\s*<!DOCTYPE", s, re.IGNORECASE):
