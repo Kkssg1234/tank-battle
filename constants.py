@@ -98,6 +98,17 @@ STATE_LEADERBOARD = "leaderboard"    # 排行榜（狂欢/双人对抗 AI 双榜
 RICOCHET_CHANCE = 0.15          # 跳弹触发概率（低数值，集中可调，便于后续平衡）
 RICOCHET_BULLET_COLOR = (255, 175, 70)  # 跳弹子弹专属配色（橙黄），区别于普通黄弹
 
+# ===== 防御反弹（高血量坦克被动，2026-08-26）=====
+# 敌人子弹命中坦克时，按该坦克自身 deflect_chance 概率被「弹开」（不造成伤害，子弹反向飞出）。
+# 设计：血量越高的坦克反弹概率越高（见 TANK_DATA 各车型 deflect 字段，按类型手工标定）。
+DEFLECT_CHANCE_PER_HP = 0.12    # 每点血量的反弹概率（兜底公式用）
+DEFLECT_CHANCE_MAX = 0.5        # 反弹概率上限
+
+# ===== 跳弹游骑兵：敌人反弹（2026-08-26）=====
+# 子弹命中敌人后不消失，会弹向最近的其他存活坦克，连锁造成伤害。
+ENEMY_BOUNCE_MAX = 4            # 单发最多命中的坦克数量（含首击）
+ENEMY_BOUNCE_COLOR = (190, 130, 255)  # 跳弹游骑兵专属紫，区别于其它子弹
+
 # ===== 坦克数据 =====
 TANK_DATA = {
     "轻型侦察车": {
@@ -109,6 +120,7 @@ TANK_DATA = {
         "description": "基础坦克，3血高机动，适合走位躲子弹，无初始道具",
         "role": "灵活机动，新手首选",
         "color": COLOR_GREEN,
+        "deflect": 0.0,               # 血量最低，被命中几乎不反弹
         "unlock_condition": {"type": "default"}
     },
     "重装突击车": {
@@ -120,6 +132,7 @@ TANK_DATA = {
         "description": "5血厚实，开局自带散射弹，正面推进能力强",
         "role": "血厚火力覆盖广",
         "color": COLOR_BLUE,
+        "deflect": 0.30,              # 血厚，被命中反弹概率高
         "unlock_condition": {"type": "level", "value": 5}
     },
     "激光狙击车": {
@@ -131,6 +144,7 @@ TANK_DATA = {
         "description": "4血中等，开局自带激光炮，可穿透钢墙和集群敌人",
         "role": "穿透压制，中距离王者",
         "color": COLOR_RED,
+        "deflect": 0.18,
         "unlock_condition": {"type": "level", "value": 10}
     },
     "KZY 终极战车": {
@@ -142,6 +156,7 @@ TANK_DATA = {
         "description": "6血最高，开局同时持有弹射弹+散射弹（每次射击3发弹射子弹），移速慢但火力恐怖",
         "role": "终极战争机器，复合火力",
         "color": COLOR_GOLD,
+        "deflect": 0.45,             # 血量最高，被命中反弹概率最高
         "unlock_condition": {"type": "battles", "value": 100}
     },
     "跳弹游骑兵": {
@@ -150,9 +165,11 @@ TANK_DATA = {
         "speed_val": 3.5,
         "init_item": None,
         "unlock_desc": "累计 50 场战斗",
-        "description": "4血高机动，综合性能略强于初始坦克；跳弹为全游戏通用机制（所有子弹均有概率弹开），本车是攻防兼备的进阶全能坦克",
-        "role": "进阶全能 · 略强于初始",
+        "description": "4血高机动，进阶全能。专属「跳弹弹」：子弹击中敌人后不消失，会弹向最近的其他敌人连锁造成伤害——一发清掉一整排",
+        "role": "进阶全能 · 跳弹连锁",
         "color": COLOR_PURPLE,
+        "enemy_bounce": True,        # 子弹命中敌人后敌人间弹射
+        "deflect": 0.15,
         "unlock_condition": {"type": "battles", "value": 50}
     }
 }

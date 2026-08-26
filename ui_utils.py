@@ -111,6 +111,30 @@ def draw_text(screen, text, x, y, fonts, font_size=FONT_M, color=COLOR_WHITE,
     return text_rect
 
 
+def wrap_text(text, fonts, font_size=FONT_M, max_width=300):
+    """按像素宽度逐字符折行（兼容中英文混排；中文按字符宽度、英文按词不拆）。
+    返回行字符串列表。用于详情面板等长文本，避免单行越界遮挡其它 UI。"""
+    font = fonts.get(font_size, fonts[FONT_M])
+    if not text:
+        return [""]
+    lines = []
+    cur = ""
+    for ch in text:
+        if ch == "\n":
+            lines.append(cur)
+            cur = ""
+            continue
+        test = cur + ch
+        if font.size(test)[0] > max_width and cur:
+            lines.append(cur)
+            cur = ch
+        else:
+            cur = test
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 # 背景缓存：每帧重复绘制 640+ 条线代价很高（wasm 浏览器尤其明显），
 # 预烘焙一次后每帧仅一次 blit。
 _BG_CACHE = None

@@ -17,7 +17,8 @@ class Bullet:
 
     def __init__(self, x, y, vx, vy, owner_type, kind=NORMAL, damage=BULLET_DAMAGE,
                  speed=BULLET_SPEED, owner=None, ricochet_chance=0.0,
-                 pierce_walls=None, bounces=None):
+                 pierce_walls=None, bounces=None, enemy_bounce=False,
+                 max_enemy_bounces=ENEMY_BOUNCE_MAX):
         self.x = float(x)
         self.y = float(y)
         # vx, vy 为方向向量（单位向量）
@@ -56,6 +57,10 @@ class Bullet:
         # 偏转后保留杀伤力且不区分敌我）。0 表示普通子弹不参与跳弹。
         self.ricochet_chance = float(ricochet_chance)
         self.ricocheted = False   # 是否已发生过跳弹（跳弹后不区分敌我，含发射者自身）
+        # 敌人反弹（跳弹游骑兵专属）：命中敌人后弹向其它目标，连锁造成伤害
+        self.enemy_bounce = bool(enemy_bounce)
+        self.enemy_bounce_count = 0
+        self.max_enemy_bounces = int(max_enemy_bounces)
         self.trail = []  # 尾迹
         self.life = 0.0
         # 超时时间：保证慢速子弹也能飞越整个竞技场宽度（ARENA_W / speed + 余量）
@@ -337,6 +342,67 @@ class Bullet:
         # 环形闪光（明确提示「弹开」事件）
         spawn_ricochet_effect(self.x, self.y, RICOCHET_BULLET_COLOR)
 
+    def try_deflect(self, tank):
+        """防御型反弹（高血量坦克被动）：敌方子弹命中本坦克时，按坦克自身
+        deflect_chance 概率将其「弹开」——不发生伤害、方向被镜面反弹脱离坦克并转为中性
+        （不区分敌我，且记入 hit_tanks 避免立即重复命中本体）。返回 True 表示被弹开。"""
+        if not self.alive or self.ricocheted:
+            return False
+        chance = getattr(tank, "deflect_chance", 0.0)
+        if chance <= 0:
+            return False
+        # 仅对「敌对子弹」生效：不反弹己方子弹，也不重复反弹已中性的子弹
+        if self.owner_type is not None and tank.owner == self.owner_type:
+            return False
+        if random.random() >= chance:
+            return False
+        # 反弹方向：沿「坦克→子弹」连线向外弹开（即反射来袭方向）
+        ang = math.atan2(-(self.y - tank.y), self.x - tank.x)  # 屏幕坐标：vx=cos, vy=-sin
+        self.direction = math.degrees(ang) % 360
+        self._sync_vector()
+        self.ricocheted = True
+        self.owner = None
+        self._spawn_ricochet_feedback()
+        # 推离坦克，避免重叠重复触发
+        self.x += self.vx * (TANK_SIZE * 0.6)
+        self.y += self.vy * (TANK_SIZE * 0.6)
+        return True
+
+    def handle_enemy_bounce(self, tank, all_tanks=None):
+        """敌人反弹（跳弹游骑兵）：命中坦克造成伤害后，重定向飞向最近的其他存活坦克，
+        继续飞行；达到最大反弹次数则返回 'dead'（调用方应销毁子弹）。
+        返回 'alive'（继续飞行）或 'dead'（应销毁）。"""
+        if not self.enemy_bounce:
+            return 'dead'
+        if self.enemy_bounce_count >= self.max_enemy_bounces:
+            return 'dead'
+        nxt = None
+        best_d = float('inf')
+        if all_tanks:
+            for t in all_tanks:
+                if not t.is_alive() or t is tank or id(t) in self.hit_tanks:
+                    continue
+                # 不主动撞向同阵营（避免自伤），中性化后方可命中任意目标
+                if self.owner_type is not None and t.owner == self.owner_type:
+                    continue
+                d = (t.x - self.x) ** 2 + (t.y - self.y) ** 2
+                if d < best_d:
+                    best_d = d
+                    nxt = t
+        if nxt is not None:
+            ang = math.atan2(-(nxt.y - self.y), nxt.x - self.x)
+            self.direction = math.degrees(ang) % 360
+        else:
+            self.direction = random.uniform(0, 360)
+        self._sync_vector()
+        self.enemy_bounce_count += 1
+        self.hit_tanks.add(id(tank))
+        # 推离被击中坦克，避免重叠重复命中
+        self.x += self.vx * (TANK_SIZE * 0.7)
+        self.y += self.vy * (TANK_SIZE * 0.7)
+        self._spawn_ricochet_feedback()
+        return 'alive'
+
     def collide_tanks(self, all_tanks):
         """3.4 坦克碰撞（友军伤害核心）。
         子弹击中任何坦克（敌人/队友/自己）一律扣血；子弹命中无视无敌帧（增加策略深度）。
@@ -352,10 +418,21 @@ class Bullet:
             if id(tank) in self.hit_tanks:
                 continue
             if self._circle_rect_collision(self.x, self.y, self.radius, tank.get_rect()):
-                # 跳弹：先判定是否弹开（不发生伤害，随机偏转并保留杀伤力）
+                # 1) 跳弹（全局随机）：命中瞬间按概率弹开（不造成伤害，随机偏转）
                 if self.try_ricochet(tank):
                     return None  # 跳弹后子弹存活并飞向随机方向，交由后续帧继续碰撞
-                # 关键：无论击中谁（含 owner 自己）都造成伤害，无视无敌帧
+                # 2) 防御反弹（高血量坦克受击）：按自身 deflect_chance 概率将敌方子弹弹开（无伤害）
+                if self.try_deflect(tank):
+                    return None
+                # 3) 跳弹游骑兵：敌人反弹 —— 命中造成伤害后继续飞向其它坦克
+                if self.enemy_bounce:
+                    tank.take_damage(self.damage, ignore_invulnerable=True)
+                    self._spawn_ricochet_feedback()
+                    res = self.handle_enemy_bounce(tank, all_tanks)
+                    if res == 'dead':
+                        self.alive = False
+                    return tank  # 命中已登记（供外层生成命中特效），子弹继续存活
+                # 4) 关键：无论击中谁（含 owner 自己）都造成伤害，无视无敌帧
                 tank.take_damage(self.damage, ignore_invulnerable=True)
                 if self.bullet_type == Bullet.LASER:
                     self.hit_tanks.add(id(tank))
@@ -408,7 +485,9 @@ class Bullet:
             return
 
         # 散射：蓝色
-        if self.bullet_type == Bullet.SCATTER:
+        if self.enemy_bounce:
+            color = ENEMY_BOUNCE_COLOR        # 跳弹游骑兵专属紫
+        elif self.bullet_type == Bullet.SCATTER:
             color = COLOR_BLUE
         elif self.bullet_type == Bullet.BOUNCE:
             color = COLOR_GREEN

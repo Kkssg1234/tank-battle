@@ -52,6 +52,10 @@ class BaseTank:
         self.shield_active = False           # 护盾是否生效（单独标志，被击中一次后清除）
         self.track_anim = 0.0  # 履带动画计数器
         self.hit_flash = 0.0   # 受击白闪强度（0~1），命中时脉冲，用于视觉反馈
+        # 防御反弹被动（高血量坦克受击时按概率弹开敌方子弹）；默认 0，子类按车型设定
+        self.deflect_chance = 0.0
+        # 跳弹游骑兵专属：发射的子弹在敌人之间弹射
+        self.enemy_bounce_bullets = False
 
     def get_rect(self):
         """获取碰撞矩形（以坦克尺寸TANK_SIZE为边长）"""
@@ -226,6 +230,10 @@ class BaseTank:
         pierce_walls = has_laser and not has_bounce
         bounces = has_bounce
 
+        # 跳弹游骑兵：敌人反弹子弹取代全局随机跳弹（避免两套机制叠加冲突）
+        enemy_bounce = self.enemy_bounce_bullets
+        ric = 0.0 if enemy_bounce else RICOCHET_CHANCE
+
         # 数量合成：散射 → 3 发扇形（±15°）；否则单发。基准角取连续炮塔角。
         if has_scatter:
             base = self.turret_angle
@@ -234,13 +242,15 @@ class BaseTank:
                 nvx, nvy = math.cos(rad), math.sin(rad)
                 bullets.append(Bullet(bx, by, nvx, nvy, self.owner,
                                       kind=kind, speed=speed, owner=self,
-                                      ricochet_chance=RICOCHET_CHANCE,
-                                      pierce_walls=pierce_walls, bounces=bounces))
+                                      ricochet_chance=ric,
+                                      pierce_walls=pierce_walls, bounces=bounces,
+                                      enemy_bounce=enemy_bounce))
         else:
             bullets.append(Bullet(bx, by, vx, vy, self.owner,
                                   kind=kind, speed=speed, owner=self,
-                                  ricochet_chance=RICOCHET_CHANCE,
-                                  pierce_walls=pierce_walls, bounces=bounces))
+                                  ricochet_chance=ric,
+                                  pierce_walls=pierce_walls, bounces=bounces,
+                                  enemy_bounce=enemy_bounce))
 
         return bullets
 
@@ -348,6 +358,11 @@ class PlayerTank(BaseTank):
         self.tank_name = tank_name
         # 视觉风格：按车型映射到差异化 style（敌人/未匹配车保持 standard）
         self.tank_style = TANK_STYLE_BY_NAME.get(tank_name, TANK_STYLE_STANDARD)
+        # 防御反弹概率：按车型 deflect（缺省按血量线性兜底），血量越高反弹概率越高
+        _def = info.get("deflect", (info["hp"] - 3) * DEFLECT_CHANCE_PER_HP)
+        self.deflect_chance = float(min(DEFLECT_CHANCE_MAX, max(0.0, _def)))
+        # 跳弹游骑兵专属：子弹在敌人之间弹射
+        self.enemy_bounce_bullets = bool(info.get("enemy_bounce", False))
         # 初始道具（持续整局，以 PERMA_BUFF_THRESHOLD 记入叠加集合，永久生效）
         init_item = info.get("init_item")
         self.default_powerup = init_item if init_item else POWERUP_NONE
@@ -372,6 +387,9 @@ class EnemyTank(BaseTank):
         self.ai_timer = 0.0
         self.patrol_dir = DIR_DOWN
         self.last_hit_by = None   # 最后命中它的玩家坦克（用于双人 vsAI 计分归属）
+        # 防御反弹：按血量线性兜底（敌人血量低，通常 0；高关卡敌人可能略带反弹）
+        self.deflect_chance = float(min(DEFLECT_CHANCE_MAX,
+                                        max(0.0, (hp - 3) * DEFLECT_CHANCE_PER_HP)))
         # 第1关攻击频率等全部由 level_config 的 enemy_fire_cd 直接指定
         self.fire_cooldown_max = cfg["enemy_fire_cd"] * ENEMY_FIRE_CD_SCALE
         # 生成点出生保护

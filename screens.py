@@ -7,7 +7,7 @@ import random
 from constants import *
 from level_config import TOTAL_LEVELS, get_level_config
 from ui_utils import (Button, draw_text, draw_bg, draw_corner_logo, draw_panel,
-                      draw_glass_panel,
+                      draw_glass_panel, wrap_text,
                       draw_tank_icon, draw_card, draw_badge, draw_progress_bar,
                       draw_glow_accent, draw_divider,
                       draw_hearts, draw_lock, draw_shield, draw_warning)
@@ -88,6 +88,25 @@ def build_p1_control(keys, mouse_down, dragging, drag_start, drag_cur, player):
 
     # 开火：鼠标左键按住（连续，受冷却限制）或 空格/J
     if mouse_down or keys[pygame.K_SPACE] or keys[pygame.K_j]:
+        ctrl.fire = True
+    return ctrl
+
+
+def build_p1_keyboard_control(keys):
+    """单人模式·键盘操作方案：纯键盘。A/D(←/→) 转向、W/S(↑/↓) 沿炮塔前进后退、空格/J 开火。
+    不使用鼠标，避免与「鼠标操作方案」混淆。"""
+    ctrl = ControlState()
+    if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+        ctrl.turn -= 1
+    if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+        ctrl.turn += 1
+    kt = 0
+    if keys[pygame.K_w] or keys[pygame.K_UP]:
+        kt += 1
+    if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+        kt -= 1
+    ctrl.throttle = kt
+    if keys[pygame.K_SPACE] or keys[pygame.K_j]:
         ctrl.fire = True
     return ctrl
 
@@ -706,11 +725,20 @@ class SinglePlayScreen:
         self.drag_start = (0, 0)
         self.drag_cur = (0, 0)
         self.mouse_down = False
+        # 操作方案：mouse（鼠标拖拽瞄准/前进）或 keyboard（纯键盘 A/D/W/S + 空格开火）
+        # 持久化到存档，下次进入沿用上次选择
+        save = get_save(self.game)
+        self.control_scheme = save.get("control_scheme", "mouse")
+        if self.control_scheme not in ("mouse", "keyboard"):
+            self.control_scheme = "mouse"
         self._build_buttons()
 
     def _build_buttons(self):
         self.back_btn = Button(SCREEN_WIDTH - 200, SCREEN_HEIGHT - 70, 170, 44,
                                "← 返回选关", FONT_M)
+        # 操作方案切换按钮（底部，靠近返回键）
+        self.scheme_btn = Button(SCREEN_WIDTH - 200, SCREEN_HEIGHT - 120, 170, 36,
+                                 "操作: 鼠标", FONT_S)
 
     def _start_level(self):
         """根据当前关卡和存档坦克，通过 LevelManager 初始化 GameWorld"""
@@ -732,7 +760,9 @@ class SinglePlayScreen:
     # -------------------- 输入 --------------------
     def handle_event(self, event):
         # 鼠标拖拽状态追踪（仅在战斗进行中生效，不干扰结算/返回按钮）
-        if self.world is not None and self.result_screen is None and not self.final_victory:
+        # 仅「鼠标操作方案」下追踪拖拽；键盘方案下忽略鼠标，避免误触移动
+        if (self.world is not None and self.result_screen is None and not self.final_victory
+                and self.control_scheme == "mouse"):
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self.dragging = True
                 self.drag_start = event.pos
@@ -743,6 +773,14 @@ class SinglePlayScreen:
                 self.mouse_down = False
             elif event.type == pygame.MOUSEMOTION and self.dragging:
                 self.drag_cur = event.pos
+
+        # 操作方案切换按钮
+        if self.scheme_btn.handle_event(event):
+            self.control_scheme = "keyboard" if self.control_scheme == "mouse" else "mouse"
+            save = get_save(self.game)
+            save["control_scheme"] = self.control_scheme
+            persist_save(self.game, save)
+            return
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
@@ -799,8 +837,13 @@ class SinglePlayScreen:
 
         # 每帧轮询键盘 + 鼠标拖拽状态，构造统一 ControlState（与 AI 共用 apply_control）
         keys = pygame.key.get_pressed()
-        ctrl = build_p1_control(keys, self.mouse_down, self.dragging,
-                                self.drag_start, self.drag_cur, self.world.player)
+        if self.control_scheme == "keyboard":
+            # 键盘操作方案：纯键盘，不使用鼠标拖拽
+            ctrl = build_p1_keyboard_control(keys)
+        else:
+            # 鼠标操作方案：拖拽瞄准/前进 + 左键开火（沿用统一操作系统）
+            ctrl = build_p1_control(keys, self.mouse_down, self.dragging,
+                                    self.drag_start, self.drag_cur, self.world.player)
         self.world.set_input(ctrl)
         self.world.update(dt)
 
@@ -990,7 +1033,14 @@ class SinglePlayScreen:
 
         # 底部按钮 / 操作提示
         self.back_btn.draw(screen, fonts)
-        draw_text(screen, "A/D 转向 · W/S 前进后退 · 左键开火 · 拖拽瞄准/前进 · ESC返回选关",
+        # 操作方案切换按钮（标签随当前方案变化）
+        self.scheme_btn.label = "操作: 键盘" if self.control_scheme == "keyboard" else "操作: 鼠标"
+        self.scheme_btn.draw(screen, fonts)
+        if self.control_scheme == "keyboard":
+            hint = "操作方案·键盘：A/D 转向 · W/S 前进后退 · 空格/J 开火 · ESC返回选关"
+        else:
+            hint = "操作方案·鼠标：A/D 转向 · W/S 前进后退 · 左键开火 · 拖拽瞄准/前进 · ESC返回选关"
+        draw_text(screen, hint,
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
         draw_corner_logo(screen, fonts)
@@ -1747,21 +1797,28 @@ class GarageScreen:
         draw_text(screen, f"{selected_name} - 详细属性",
                   panel_x + 25, panel_y + 15, fonts, FONT_M,
                   selected_info["color"] if selected_unlocked else COLOR_GRAY)
+        # 说明文字按像素宽度换行，避免单行越过右侧能力条造成遮挡
         desc = selected_info["description"]
-        draw_text(screen, desc,
-                  panel_x + 25, panel_y + 52, fonts, FONT_S,
-                  COLOR_LIGHT_GRAY if selected_unlocked else COLOR_DARK_GRAY)
+        # 右侧能力条从 panel_x+440 起，留给说明文字最大宽度约 400px
+        _desc_max_w = (panel_x + 440) - (panel_x + 25) - 15
+        _desc_lines = wrap_text(desc, fonts, FONT_S, _desc_max_w)
+        _dy = panel_y + 48
+        for _line in _desc_lines:
+            draw_text(screen, _line,
+                      panel_x + 25, _dy, fonts, FONT_S,
+                      COLOR_LIGHT_GRAY if selected_unlocked else COLOR_DARK_GRAY)
+            _dy += 22
         if not selected_unlocked:
             draw_text(screen, f"解锁条件: {selected_info['unlock_desc']}",
-                      panel_x + 25, panel_y + 82, fonts, FONT_S, COLOR_ORANGE)
+                      panel_x + 25, panel_y + 92, fonts, FONT_S, COLOR_ORANGE)
         else:
             last = save.get("last_selected_tank", "")
             if last == selected_name:
                 draw_text(screen, "当前出战坦克",
-                          panel_x + panel_w - 200, panel_y + 82, fonts, FONT_S, COLOR_GREEN)
+                          panel_x + panel_w - 200, panel_y + 92, fonts, FONT_S, COLOR_GREEN)
             else:
                 draw_text(screen, "↓ 点击下方按钮选为出战坦克",
-                          panel_x + panel_w - 230, panel_y + 82, fonts, FONT_S, COLOR_YELLOW)
+                          panel_x + panel_w - 230, panel_y + 92, fonts, FONT_S, COLOR_YELLOW)
 
         # 能力条（血量/火力/机动，3 条横向，坦克同色填充）
         if selected_unlocked:

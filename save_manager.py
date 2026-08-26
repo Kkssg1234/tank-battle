@@ -62,6 +62,7 @@ class SaveManager:
             "high_scores": {f"level_{i}": 0 for i in range(1, TOTAL_LEVELS + 1)},
             "unlocked_tanks": list(DEFAULT_UNLOCKED),
             "last_selected_tank": DEFAULT_TANK,
+            "control_scheme": "mouse",   # 单人模式操作方案：mouse（拖拽）/ keyboard（纯键盘）
             "leaderboard": [],           # 排行榜：[{name, score, mode, date}]
         }
 

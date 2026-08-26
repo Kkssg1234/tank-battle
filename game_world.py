@@ -558,25 +558,40 @@ class TwoPlayerGameWorld:
                 continue
             if bullet.get_rect().colliderect(p.get_rect()):
                 self._apply_bullet_to_tank(bullet, p)
-                if not bullet.alive:
+                # 敌人反弹/防御反弹后让子弹本帧只结算一次，避免同帧多目标连锁
+                if not bullet.alive or bullet.enemy_bounce or bullet.ricocheted:
                     return
         for e in self.enemies:
             if not e.alive or id(e) in bullet.hit_tanks:
                 continue
             if bullet.get_rect().colliderect(e.get_rect()):
                 self._apply_bullet_to_tank(bullet, e)
-                if not bullet.alive:
+                if not bullet.alive or bullet.enemy_bounce or bullet.ricocheted:
                     return
 
     def _apply_bullet_to_tank(self, bullet, tank):
-        """处理子弹击中坦克的伤害逻辑（含友军伤害 + 跳弹机制 + 击杀归属）"""
+        """处理子弹击中坦克的伤害逻辑（含友军伤害 + 跳弹机制 + 防御反弹 + 敌人反弹 + 击杀归属）"""
         if bullet.try_ricochet(tank):
+            return
+        # 防御反弹（高血量坦克受击）：按自身 deflect_chance 概率将敌方子弹弹开（无伤害）
+        if bullet.try_deflect(tank):
             return
         if bullet.ricocheted:
             damaged = tank.take_damage(bullet.damage)
             bullet.alive = False
             if tank.alive and damaged:
                 self.explosions.append(Explosion(tank.x, tank.y, big=False))
+            return
+
+        # 跳弹游骑兵：敌人反弹 —— 命中造成伤害后继续飞向其它坦克（击杀归属照常记录）
+        if bullet.enemy_bounce:
+            if bullet.owner_type == "player" and tank.owner == "enemy":
+                tank.last_hit_by = bullet.owner
+            damaged = tank.take_damage(bullet.damage)
+            self.explosions.append(Explosion(tank.x, tank.y, big=False))
+            res = bullet.handle_enemy_bounce(tank, self.players + self.enemies)
+            if res == 'dead':
+                bullet.alive = False
             return
 
         hit = False
