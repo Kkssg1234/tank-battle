@@ -731,6 +731,7 @@ class SinglePlayScreen:
         self.control_scheme = save.get("control_scheme", "mouse")
         if self.control_scheme not in ("mouse", "keyboard"):
             self.control_scheme = "mouse"
+        self.p1_crosshair_mode = "aim"  # 鼠标方案准星模式（aim/move），与双人 P2 一致
         self._build_buttons()
 
     def _build_buttons(self):
@@ -841,9 +842,11 @@ class SinglePlayScreen:
             # 键盘操作方案：纯键盘，不使用鼠标拖拽
             ctrl = build_p1_keyboard_control(keys)
         else:
-            # 鼠标操作方案：拖拽瞄准/前进 + 左键开火（沿用统一操作系统）
-            ctrl = build_p1_control(keys, self.mouse_down, self.dragging,
-                                    self.drag_start, self.drag_cur, self.world.player)
+            # 鼠标操作方案：与双人模式 P2 鼠标操控完全一致
+            # 以坦克为圆心：圆内→炮台瞄准、圆外→驶向光标、左键开火
+            mp = self.game.map_mouse(pygame.mouse.get_pos())
+            ctrl, self.p1_crosshair_mode = build_p2_mouse_control(
+                mp, self.world.player, self.mouse_down)
         self.world.set_input(ctrl)
         self.world.update(dt)
 
@@ -910,6 +913,11 @@ class SinglePlayScreen:
         level = self.game.current_level
         w = self.world
         player = w.player
+        # 鼠标操作方案进行中：隐藏系统指针，改用自定义准星（与双人模式一致）
+        if self.control_scheme == "mouse" and self.result_screen is None and player.alive:
+            pygame.mouse.set_visible(False)
+        else:
+            pygame.mouse.set_visible(True)
         tank_name = player.tank_name
         tank_info = TANK_DATA.get(tank_name, TANK_DATA["轻型侦察车"])
 
@@ -1039,10 +1047,28 @@ class SinglePlayScreen:
         if self.control_scheme == "keyboard":
             hint = "操作方案·键盘：A/D 转向 · W/S 前进后退 · 空格/J 开火 · ESC返回选关"
         else:
-            hint = "操作方案·鼠标：A/D 转向 · W/S 前进后退 · 左键开火 · 拖拽瞄准/前进 · ESC返回选关"
+            hint = "操作方案·鼠标：以坦克为圆心，圆内→炮台瞄准 · 圆外→驶向光标 · 左键开火 · ESC返回选关"
         draw_text(screen, hint,
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
+
+        # ---- 鼠标操作方案可视化（判定环 + 模式准星，与双人模式 P2 完全一致）----
+        if self.control_scheme == "mouse" and self.result_screen is None and player.alive:
+            tsx = ARENA_X + int(player.x)
+            tsy = ARENA_Y + int(player.y)
+            ring = _get_p2_ring(P2_MOUSE_RADIUS, P2_CROSSHAIR_COLOR)
+            screen.blit(ring, (tsx - ring.get_width() // 2, tsy - ring.get_height() // 2))
+            mp = self.game.map_mouse(pygame.mouse.get_pos())
+            col = P2_CROSSHAIR_COLOR
+            if self.p1_crosshair_mode == "aim":
+                ln = 11
+                pygame.draw.line(screen, col, (mp[0] - ln, mp[1]), (mp[0] + ln, mp[1]), 2)
+                pygame.draw.line(screen, col, (mp[0], mp[1] - ln), (mp[0], mp[1] + ln), 2)
+                pygame.draw.circle(screen, col, mp, 2)
+            else:
+                pygame.draw.circle(screen, col, mp, 9, width=2)
+                pygame.draw.circle(screen, col, mp, 2)
+
         draw_corner_logo(screen, fonts)
 
         # 结算界面（ResultScreen）

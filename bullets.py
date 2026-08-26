@@ -30,6 +30,9 @@ class Bullet:
         self.direction = math.degrees(math.atan2(-self.vy, self.vx))
         # 发射者引用（Tank 实例），用于友军伤害判定；owner_type 由 owner 推导以兼容旧逻辑
         self.owner = owner
+        # 计分归属：保留原始发射者（坦克实例），即便跳弹/防御反弹将 owner 置空（中性化后不区分敌我），
+        # 击杀归属仍记回原始发射者，保证双人计分准确（total_score == kills*100）。
+        self.credit_owner = owner
         self.owner_type = owner.owner if (owner is not None) else owner_type
         # 子弹类型：normal / laser / bounce / scatter
         self.bullet_type = kind

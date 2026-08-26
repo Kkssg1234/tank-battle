@@ -496,7 +496,7 @@ class TwoPlayerGameWorld:
             if b.bullet_type == Bullet.LASER and b.beam_mode:
                 b._resolve_beam(self.game_map, all_tanks)
                 for t in b.beam_hits:
-                    t.last_hit_by = b.owner   # 激光击杀也归属
+                    t.last_hit_by = b.credit_owner   # 激光击杀也归属（保留原始发射者）
                     self.explosions.append(Explosion(t.x, t.y, big=False))
                 b.beam_hits.clear()
             else:
@@ -577,6 +577,8 @@ class TwoPlayerGameWorld:
         if bullet.try_deflect(tank):
             return
         if bullet.ricocheted:
+            # 中性化子弹（跳弹/防御反弹）击杀仍归属原始发射者，避免双人计分漏算
+            tank.last_hit_by = bullet.credit_owner
             damaged = tank.take_damage(bullet.damage)
             bullet.alive = False
             if tank.alive and damaged:
@@ -586,7 +588,7 @@ class TwoPlayerGameWorld:
         # 跳弹游骑兵：敌人反弹 —— 命中造成伤害后继续飞向其它坦克（击杀归属照常记录）
         if bullet.enemy_bounce:
             if bullet.owner_type == "player" and tank.owner == "enemy":
-                tank.last_hit_by = bullet.owner
+                tank.last_hit_by = bullet.credit_owner
             damaged = tank.take_damage(bullet.damage)
             self.explosions.append(Explosion(tank.x, tank.y, big=False))
             res = bullet.handle_enemy_bounce(tank, self.players + self.enemies)
@@ -599,7 +601,7 @@ class TwoPlayerGameWorld:
             hit = True
         elif bullet.owner_type == "player" and tank.owner == "enemy":
             hit = True
-            tank.last_hit_by = bullet.owner   # 记录击杀归属（双人计分）
+            tank.last_hit_by = bullet.credit_owner   # 记录击杀归属（双人计分）
         elif bullet.owner_type == "player" and tank.owner == "player":
             if bullet.owner is tank:
                 if bullet.bullet_type == Bullet.BOUNCE:
