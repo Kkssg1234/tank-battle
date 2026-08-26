@@ -77,6 +77,12 @@ jobs:
         run: |
           python scripts/patch_index.py build/web/index.html
 
+      - name: Copy vendored pygbag runtime into build
+        # 将 vendor/cdn（0.9.3 运行时，已随仓库提交）拷入部署包，
+        # 使页面从同源加载运行时，避免用户网络无法访问 pygame-web.github.io CDN 而整页打不开。
+        run: |
+          cp -r vendor/cdn build/web/cdn
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 

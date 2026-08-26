@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>https://github.com/kripken/speak.js</title>
+	<script src="speakClient.js" async=false></script>
+    <script src="speakGenerator.js" async=false></script>
+	<script src="/archives/lib/dlfcn.js" defer=true></script>
+    <script>
+    function say(string) {
+        speak(string, {noWorker: true })
+        return "I said : "+string
+    }
+    function onlink() {
+        say("ready")
+        linked()
+    }
+    window.onload = onlink
+    </script>
+
+</head>
+<body>
+
+	<div id="audio"></div>
+
+	<br>
+	<input type="button" onclick="say('hello world!')" value="Say 'Hello World!'" />
+	<br>
+	<br>
+
+</body>
+</html>

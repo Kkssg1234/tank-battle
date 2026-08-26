@@ -44,6 +44,11 @@ def patch(path: str) -> None:
 
     orig = s
 
+    # 0) 自托管 pygbag 运行时：把外部 CDN(pygame-web.github.io) 改写为同源相对路径。
+    #    用户网络无法访问该 CDN 时整页会卡在 "Downloading..."；运行时已由 vendor/cdn 随仓库部署，
+    #    改走 ./cdn/ 后浏览器只与自己的 GitHub Pages 同源通信，即可正常加载。
+    s = s.replace("https://pygame-web.github.io/cdn/", "./cdn/")
+
     # 1) 注入 DOCTYPE，消除 Quirks Mode（根因之一：画布高度塌缩导致黑屏）
     if not re.match(r"^\s*<!DOCTYPE", s, re.IGNORECASE):
         s = "<!DOCTYPE html>\n" + s
@@ -98,14 +103,8 @@ def patch(path: str) -> None:
     # 9) 生产环境关闭 xtermjs 终端覆盖层：减少 JS 开销与字体请求，加快首屏
     s = re.sub(r'xtermjs\s*[:=]\s*"[01]"', 'xtermjs : "0"', s)
 
-    # 10) 预连接 CDN，加速 wasm / 字体首屏加载
-    if 'rel="preconnect"' not in s:
-        s = s.replace(
-            '<link rel="icon"',
-            '<link rel="preconnect" href="https://pygame-web.github.io" crossorigin>\n'
-            '    <link rel="icon"',
-            1,
-        )
+    # 10) 运行时已自托管，不再预连接外部 CDN（外部 CDN 反而是用户网络打不开的根因），
+    #     故此处不再注入 pygame-web 的 preconnect，避免无谓的跨域连接失败日志。
 
     # 11) 网页端清晰度核心：给画布加最近邻缩放，避免浏览器把 960x640 后备缓冲
     #     双线性拉伸到视口导致模糊（image-rendering 不影响鼠标坐标映射）。
