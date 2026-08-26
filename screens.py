@@ -110,6 +110,53 @@ def build_p2_control(keys):
     return ctrl
 
 
+def build_p2_mouse_control(mouse_pos, player, fire):
+    """双人模式玩家 2 控制（鼠标）：
+    - 以玩家 2 坦克为圆心、P2_MOUSE_RADIUS 为半径的判定圆：
+        圆内  → 仅瞄准（炮台转向鼠标方向），不移动（准星显示十字）
+        圆外  → 朝鼠标方向移动（炮台同步指向鼠标，即「驶向光标」）（准星显示圈）
+    - 左键开火。
+    返回 (ControlState, mode)，mode ∈ {'aim','move'} 供准星绘制。"""
+    ctrl = ControlState()
+    if not player.alive:
+        return ctrl, "aim"
+    # 屏幕坐标 → 竞技场局部坐标（world 以 ARENA_X/Y 为原点绘制）
+    mx = mouse_pos[0] - ARENA_X
+    my = mouse_pos[1] - ARENA_Y
+    dx = mx - player.x
+    dy = my - player.y
+    dist = math.hypot(dx, dy)
+    if dist <= P2_MOUSE_RADIUS:
+        # 圆内：仅瞄准（炮台转向鼠标），屏蔽键盘转向避免冲突
+        ctrl.aim_angle = math.atan2(dy, dx)
+        ctrl.turn = 0
+        ctrl.throttle = 0
+        mode = "aim"
+    else:
+        # 圆外：炮台指向鼠标 + 沿炮塔前进 → 驶向光标
+        ctrl.aim_angle = math.atan2(dy, dx)
+        ctrl.turn = 0
+        ctrl.throttle = 1
+        mode = "move"
+    if fire:
+        ctrl.fire = True
+    return ctrl, mode
+
+
+# P2 判定环缓存（半径/颜色固定的 SRCALPHA 表面，零每帧分配）
+_P2_RING_CACHE = {}
+def _get_p2_ring(radius, color):
+    """返回以坦克为圆心的淡蓝判定环（圆内瞄准 / 圆外移动的分界），缓存复用。"""
+    key = (radius, color)
+    s = _P2_RING_CACHE.get(key)
+    if s is None:
+        r = int(radius)
+        s = pygame.Surface((r * 2 + 2, r * 2 + 2), pygame.SRCALPHA)
+        pygame.draw.circle(s, (*color[:3], 55), (r + 1, r + 1), r, width=2)
+        _P2_RING_CACHE[key] = s
+    return s
+
+
 class NameField:
     """简易文本输入（pygame 无 IME，仅支持 ASCII/数字；中文需预设默认值）。"""
     def __init__(self, x, y, w, h, label, default=""):
@@ -1008,8 +1055,8 @@ class TwoPlayerSelectScreen:
             ("· 积分排行榜：结算成绩进入排行榜", COLOR_LIGHT_GRAY),
             ("", COLOR_LIGHT_GRAY),
             ("操作", COLOR_GOLD),
-            ("玩家1：A/D 转向 · W/S 前进后退 · 鼠标左键开火 · 拖拽瞄准/前进", COLOR_GREEN),
-            ("玩家2：方向键转向/移动 · 右 Shift 开火", COLOR_BLUE),
+            ("玩家1（键盘）：A/D 转向 · W/S 前进后退 · 空格/J 开火", COLOR_GREEN),
+            ("玩家2（鼠标）：以坦克为圆心，圆内→炮台瞄准 · 圆外→驶向光标 · 左键开火", COLOR_BLUE),
         ]
         ty = 206
         for txt, col in lines:
@@ -1215,11 +1262,9 @@ class TwoPlayScreen:
         self.retry_btn = None
         self.leaderboard_btn = None
         self.result_popup = None
-        # 玩家 1 鼠标拖拽状态（与单人模式统一操作系统）
-        self.dragging = False
-        self.drag_start = (0, 0)
-        self.drag_cur = (0, 0)
+        # P2 鼠标控制状态（P2 使用鼠标；P1 仅键盘，不占用鼠标）
         self.mouse_down = False
+        self.p2_crosshair_mode = "aim"
         self._build_buttons()
 
     def _build_buttons(self):
@@ -1241,25 +1286,19 @@ class TwoPlayScreen:
         self.world = TwoPlayerGameWorld(p1_name, p2_name, t1, t2, self.game.fonts)
         self.result_popup = None
         self.time = 0.0
-        self.dragging = False
         self.mouse_down = False
+        self.p2_crosshair_mode = "aim"
 
     def enter(self):
         self._start_game()
 
     def handle_event(self, event):
-        # 玩家 1 鼠标拖拽追踪（仅战斗进行中生效）
+        # P2 鼠标准星：仅追踪左键状态用于开火（鼠标位置由 get_pos 实时读取）
         if self.world is not None and self.result_popup is None:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                self.dragging = True
-                self.drag_start = event.pos
-                self.drag_cur = event.pos
                 self.mouse_down = True
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                self.dragging = False
                 self.mouse_down = False
-            elif event.type == pygame.MOUSEMOTION and self.dragging:
-                self.drag_cur = event.pos
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
@@ -1297,11 +1336,13 @@ class TwoPlayScreen:
             return
 
         keys = pygame.key.get_pressed()
-        # 玩家 1：鼠标 + WASD（与单人模式统一操作系统）
-        p1_ctrl = build_p1_control(keys, self.mouse_down, self.dragging,
-                                   self.drag_start, self.drag_cur, self.world.player1)
-        # 玩家 2：纯键盘（方向键 + 右 Shift）
-        p2_ctrl = build_p2_control(keys)
+        # 玩家 1：键盘（A/D 转向 · W/S 沿炮塔移动 · 空格/J 开火），不占用鼠标
+        p1_ctrl = build_p1_control(keys, False, False, (0, 0), (0, 0),
+                                   self.world.player1)
+        # 玩家 2：鼠标（圆内瞄准 / 圆外移动 · 左键开火）
+        mp = pygame.mouse.get_pos()
+        p2_ctrl, p2_mode = build_p2_mouse_control(mp, self.world.player2, self.mouse_down)
+        self.p2_crosshair_mode = p2_mode
         self.world.set_input(p1_ctrl, p2_ctrl)
         self.world.update(dt)
 
@@ -1386,11 +1427,30 @@ class TwoPlayScreen:
                   fonts, FONT_S, tip_color, center=True)
 
         # 底部操作提示
-        draw_text(screen, "P1: A/D 转向·W/S 移动·左键开火   P2: 方向键·右Shift开火   ESC返回",
+        draw_text(screen, "P1: A/D 转向·W/S 移动·空格/J 开火   P2: 鼠标(圆内瞄准·圆外移动)·左键开火   ESC返回",
                   SCREEN_WIDTH // 2, SCREEN_HEIGHT - 28,
                   fonts, FONT_S, COLOR_LIGHT_GRAY, center=True)
 
         self.back_btn.draw(screen, fonts)
+
+        # ---- P2 鼠标控制可视化：判定环 + 模式准星 ----
+        if self.result_popup is None and w.player2.alive:
+            tsx = ARENA_X + int(w.player2.x)
+            tsy = ARENA_Y + int(w.player2.y)
+            ring = _get_p2_ring(P2_MOUSE_RADIUS, P2_CROSSHAIR_COLOR)
+            screen.blit(ring, (tsx - ring.get_width() // 2, tsy - ring.get_height() // 2))
+            mp = pygame.mouse.get_pos()
+            col = P2_CROSSHAIR_COLOR
+            if self.p2_crosshair_mode == "aim":
+                # 圆内：转向/瞄准 → 十字准星
+                ln = 11
+                pygame.draw.line(screen, col, (mp[0] - ln, mp[1]), (mp[0] + ln, mp[1]), 2)
+                pygame.draw.line(screen, col, (mp[0], mp[1] - ln), (mp[0], mp[1] + ln), 2)
+                pygame.draw.circle(screen, col, mp, 2)
+            else:
+                # 圆外：移动 → 圈准星
+                pygame.draw.circle(screen, col, mp, 9, width=2)
+                pygame.draw.circle(screen, col, mp, 2)
 
         # 结算弹窗
         if self.result_popup:
