@@ -14,11 +14,11 @@ readline.complete = function (line) {
 
 if (!window.Terminal) {
     var xterm_cdn
-    // 优先用 vtx.js 自身位置推导 vt 目录（vtx 与 vt 永远是同级兄弟目录：
-    // cdn/vtx.js <-> cdn/vt/）。这样无论 config.cdn 是绝对还是相对路径、
-    // 是否因叠加产生 cdn/cdn 前缀，都能稳定定位到 cdn/vt/，避免 xterm 404。
+    // 优先用 vtx.js 自身位置推导 vt 目录。vtx 与 vt 是 cdn/ 下的同级兄弟目录
+    //（cdn/vtx.js <-> cdn/vt/），故用 "./vt/"（同级的 vt）。这不受 config.cdn
+    // 是相对还是绝对、是否叠加的影响，稳定落在 cdn/vt/，避免 xterm 404。
     if (typeof import.meta !== "undefined" && import.meta.url) {
-        xterm_cdn = new URL("../vt/", import.meta.url).href
+        xterm_cdn = new URL("./vt/", import.meta.url).href
         console.log("Terminal+ImageAddon importing from CDN :", xterm_cdn)
     } else if (window.Module.config && window.Module.config.cdn) {
         xterm_cdn = window.Module.config.cdn+"../vt/"
