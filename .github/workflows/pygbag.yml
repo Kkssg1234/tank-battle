@@ -36,16 +36,18 @@ jobs:
           python -m pygbag --build --app_name tank_battle --title "坦克大战" --can_close 1 .
 
       - name: Clean private files from build bundle
-        # pygbag 默认用目录名（中文）命名 apk；先重命名为英文，再剔除隐私/开发文件
+        # 统一归档名为 tank_battle，与页面 Python 模板 custom_site() 硬编码的 tank_battle.tar.gz 一致。
+        # pygbag 在不同版本/环境下可能产出 中文名 / 连字符名 / 下划线名，这里全部归一到 tank_battle。
         run: |
           cd build/web
-          # 重命名为英文，避免 URL 编码问题。pygbag 不同版本/参数可能产生
-          # 中文名或连字符名（坦克大战 / tank-battle），统一归一到 tank_battle，
-          # 与页面 Python 模板 custom_site() 硬编码的 tank_battle.tar.gz 保持一致。
-          for f in "坦克大战.apk" "tank-battle.apk"; do [ -f "$f" ] && mv "$f" "tank_battle.apk"; done
-          for f in "坦克大战.tar.gz" "tank-battle.tar.gz"; do [ -f "$f" ] && mv "$f" "tank_battle.tar.gz"; done
+          for f in "坦克大战.apk" "tank-battle.apk" "tank_battle.apk"; do
+            [ -f "$f" ] && [ "$f" != "tank_battle.apk" ] && mv -f "$f" "tank_battle.apk" || true
+          done
+          for f in "坦克大战.tar.gz" "tank-battle.tar.gz" "tank_battle.tar.gz"; do
+            [ -f "$f" ] && [ "$f" != "tank_battle.tar.gz" ] && mv -f "$f" "tank_battle.tar.gz" || true
+          done
           # 修正 index.html 中对中文文件名的引用
-          python - <<'PY'
+          python3 - <<'PY'
           p = "index.html"
           s = open(p, encoding="utf-8").read()
           for a, b in [('坦克大战.apk','tank_battle.apk'),('坦克大战.tar.gz','tank_battle.tar.gz'),
@@ -55,29 +57,32 @@ jobs:
           print("index.html fixed")
           PY
           # 从压缩包内剔除 .workbuddy 记忆与真实存档
-          python - <<'PY'
+          python3 - <<'PY'
           import tarfile, io, os
           apk = "tank_battle.tar.gz"
-          if os.path.exists(apk):
+          if not os.path.exists(apk):
+              print("no tank_battle.tar.gz, skip cleanup"); raise SystemExit(0)
+          try:
               buf = io.BytesIO()
               with tarfile.open(apk, "r:gz") as t:
                   members = t.getmembers()
-                  kept = 0
-                  with tarfile.open(buf, "w:gz") as out:
+                  kept = 0; skipped = 0
+                  with tarfile.open(fileobj=buf, mode="w:gz") as out:
                       for m in members:
                           if m.name.startswith("assets/.workbuddy") or m.name == "assets/save.json":
-                              continue
-                          out.addfile(m, t.extractfile(m))
-                          kept += 1
-                  print("kept", kept, "members")
+                              skipped += 1; continue
+                          out.addfile(m, t.extractfile(m)); kept += 1
+                  print("kept", kept, "skipped", skipped)
               with open(apk, "wb") as f:
                   f.write(buf.getvalue())
+          except Exception as e:
+              print("tar cleanup failed (non-fatal):", repr(e))
           PY
 
       - name: Patch index.html for auto-start
         # 让游戏加载后自动启动，不再卡在 "等待点击"；并清理无效 allow feature 警告
         run: |
-          python scripts/patch_index.py build/web/index.html
+          python3 scripts/patch_index.py build/web/index.html
 
       - name: Copy vendored pygbag runtime into build
         # 将 vendor/cdn（0.9.3 运行时，已随仓库提交）拷入部署包，
