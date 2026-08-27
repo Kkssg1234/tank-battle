@@ -46,24 +46,26 @@ def patch(path: str) -> None:
 
     orig = s
 
-    # 0) 自托管 pygbag 运行时：把外部 CDN(pygame-web.github.io) 改写为【同源绝对地址】。
-    #    用户网络无法访问该 CDN 时整页会卡在 "Downloading..."；运行时已由 vendor/cdn 随仓库部署。
-    #    必须用【绝对】同源地址（而非相对 ./cdn/）：vtx.js 内部用 config.cdn + "../vt/" 拼终端路径，
-    #    若 config.cdn 是相对路径，会以 vtx.js 自身位置(cdn/vtx.js)为基准再叠加一层 cdn，
-    #    解析成 cdn/cdn/vt/ 导致 xterm 404。绝对地址可避免该相对叠加。
-    s = s.replace("https://pygame-web.github.io/cdn/", "https://kkssg1234.github.io/tank-battle/cdn/")
-    # 0.1) 兜底：清掉任何残留的裸 pygame-web 主机引用（如 preconnect），统一指向同源根。
-    s = s.replace("https://pygame-web.github.io", "https://kkssg1234.github.io/tank-battle")
+    # 0) 运行时改为从 jsdelivr 镜像加载（不再自托管 github.io，也不再走被墙的 pygame-web CDN）。
+    #    根因：github.io Pages 对本项目的大二进制文件（wasm 13.4MB / data 6.7MB）在下载中途
+    #    重置连接(ERR_CONNECTION_RESET)，导致 wasm 编译失败、整页卡死。jsdelivr 对本类大文件
+    #    可稳定完整传输（已实测 13MB wasm 全量拉取成功），且在国内有可用边缘节点。
+    #    模板 cdn 基址形如 https://pygame-web.github.io/cdn/0.9.3/，故仅替换前缀
+    #    https://pygame-web.github.io/cdn/ 为 jsdelivr 基址 https://cdn.jsdelivr.net/gh/pygame-web/cdn@main/，
+    #    版本号 0.9.3 由模板自带保留（注意结尾斜杠，否则会变成 main0.9.3 的错误拼接）。
+    s = s.replace("https://pygame-web.github.io/cdn/", "https://cdn.jsdelivr.net/gh/pygame-web/cdn@main/")
+    # 0.1) 兜底：清掉任何残留的裸 pygame-web 主机引用，统一指向 jsdelivr 运行时基址。
+    s = s.replace("https://pygame-web.github.io", "https://cdn.jsdelivr.net/gh/pygame-web/cdn@main/")
 
-    # 0.2) browserfs 运行时【必须保留并自托管】，绝不能删。
-    #      pygbag 的 cpython312/main.js 启动时会检查全局 window.BrowserFS，缺失则报
-    #      "PyMain: BrowserFS not found" 且文件系统无法初始化 → 归档解不出 → 游戏卡死。
-    #      模板默认从外部 CDN(pygame-web.github.io) 引 browserfs.min.js，用户网络打不开 → 404；
-    #      上面 step 0 已把该外部地址改写为同源绝对地址。本步再修掉模板自带的双斜杠
-    #      （cookiecutter.cdn 末尾带 "/"，拼接出 "0.9.3//browserfs.min.js"），确保路径干净可命中。
-    #      文件本身由 vendor/cdn/0.9.3/browserfs.min.js 随仓库部署
-    #      （CI 的 `cp -r vendor/cdn build/web/cdn` 会把它带进产物）。
-    s = s.replace("tank-battle/cdn/0.9.3//browserfs", "tank-battle/cdn/0.9.3/browserfs")
+    # 0.2) browserfs 不在 pygame-web/cdn 内（jsdelivr 该路径 404），改用官方 npm 镜像。
+    #      pygbag 0.9.3 依赖 browserfs@1.4.3（全局 window.BrowserFS 挂载文件系统）；
+    #      缺失则报 "PyMain: BrowserFS not found"，文件系统无法初始化 → 归档解不出 → 游戏卡死。
+    #      模板自带双斜杠(0.9.3//browserfs.min.js)，这里用 /+ 同时兼容单/双斜杠，重定向到 npm 镜像。
+    s = re.sub(
+        r"https://cdn\.jsdelivr\.net/gh/pygame-web/cdn@main/0\.9\.3/+browserfs\.min\.js",
+        "https://cdn.jsdelivr.net/npm/browserfs@1.4.3/dist/browserfs.min.js",
+        s,
+    )
 
     # 1) 注入 DOCTYPE，消除 Quirks Mode（根因之一：画布高度塌缩导致黑屏）
     if not re.match(r"^\s*<!DOCTYPE", s, re.IGNORECASE):
@@ -102,9 +104,14 @@ def patch(path: str) -> None:
     #     → 归档解不出 → main.py 缺失 → 页面永远卡在加载。这里把 bundle、fopen 统一归一为
     #     tank_battle，兼容 中文 / 连字符 / 下划线 三种写法。
     #     注意：绝不能动 URL 中的 /tank-battle/（那是 GitHub Pages 的仓库子路径，必须保留连字符）。
+    # 7b) 游戏归档（apk / tar.gz，约 5MB）同样不能再从 github.io 拉取（大文件会被重置连接），
+    #     改为从 jsdelivr 加载：归档随每次构建推送到仓库的 assets 分支，经 jsdelivr 稳定分发。
+    #     bundle 仍保留为 tank_battle（仅用于内部挂载路径，避免 appdir 出现异常 URL），
+    #     但 fopen 的归档地址改为 jsdelivr 绝对地址。
+    ARCHIVE_BASE = "https://cdn.jsdelivr.net/gh/kkssg1234/tank-battle@assets/tank_battle"
     s = re.sub(r'bundle\s*=\s*"[^"]*"', 'bundle = "tank_battle"', s)
-    s = re.sub(r'fopen\("([^"]*)\.tar\.gz"', 'fopen("tank_battle.tar.gz"', s)
-    s = re.sub(r'fopen\("([^"]*)\.apk"', 'fopen("tank_battle.apk"', s)
+    s = re.sub(r'fopen\("([^"]*)\.tar\.gz"', f'fopen("{ARCHIVE_BASE}.tar.gz"', s)
+    s = re.sub(r'fopen\("([^"]*)\.apk"', f'fopen("{ARCHIVE_BASE}.apk"', s)
     # 兜底：把零散的连字符归档引用（如 Loading 文本 "from tank-battle.apk"）也归一。
     # 这些子串只出现在模板文本里，不会出现在 /tank-battle/cdn 这种 URL 中，可安全替换。
     s = s.replace("tank-battle.apk", "tank_battle.apk").replace("tank-battle.tar.gz", "tank_battle.tar.gz")
@@ -153,8 +160,13 @@ def patch(path: str) -> None:
     # 9) 生产环境关闭 xtermjs 终端覆盖层：减少 JS 开销与字体请求，加快首屏
     s = re.sub(r'xtermjs\s*[:=]\s*"[01]"', 'xtermjs : "0"', s)
 
-    # 10) 运行时已自托管，不再预连接外部 CDN（外部 CDN 反而是用户网络打不开的根因），
-    #     故此处不再注入 pygame-web 的 preconnect，避免无谓的跨域连接失败日志。
+    # 10) 运行时已迁到 jsdelivr：预连接该 CDN 以加速 wasm / 归档的首字节。
+    if '<html lang="en-us">' in s and 'rel="preconnect" href="https://cdn.jsdelivr.net"' not in s:
+        s = s.replace(
+            '<html lang="en-us">',
+            '<html lang="en-us">\n<head><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin></head>',
+            1,
+        )
 
     # 11) 网页端清晰度核心：给画布加最近邻缩放，避免浏览器把 960x640 后备缓冲
     #     双线性拉伸到视口导致模糊（image-rendering 不影响鼠标坐标映射）。
