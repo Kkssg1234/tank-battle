@@ -14,6 +14,7 @@ patch_index.py - pygbag 构建后对 index.html 的修正脚本
 8. 网页布局美化：两侧留白区域主题化为深蓝科技风 + 画布辉光边框，消除"空白"观感
 9. 生产环境关闭 xtermjs 终端覆盖层，减少 JS 开销与字体请求，加快首屏
 10. 预连接 CDN，加速 wasm / 字体加载
+11. 删除 templates 残留的 browserfs.min.js 脚本标签（pygbag 已移除 browserfs，未自托管会 404）
 
 用法：
     python scripts/patch_index.py build/web/index.html
@@ -52,6 +53,15 @@ def patch(path: str) -> None:
     s = s.replace("https://pygame-web.github.io/cdn/", "https://kkssg1234.github.io/tank-battle/cdn/")
     # 0.1) 兜底：清掉任何残留的裸 pygame-web 主机引用（如 preconnect），统一指向同源根。
     s = s.replace("https://pygame-web.github.io", "https://kkssg1234.github.io/tank-battle")
+
+    # 0.2) 删除 browserfs.min.js 脚本标签。pygbag 已在 pythons.js 中移除 browserfs，
+    #      但 index.html 模板仍残留该 <script>，而我们并未自托管它 → 必然 404。
+    #      直接删掉该标签，消除最后一个控制台 404 噪声（不影响运行）。
+    s = re.sub(
+        r'\s*<script[^>]*src="[^"]*browserfs\.min\.js"[^>]*></script>\s*\n',
+        "",
+        s,
+    )
 
     # 1) 注入 DOCTYPE，消除 Quirks Mode（根因之一：画布高度塌缩导致黑屏）
     if not re.match(r"^\s*<!DOCTYPE", s, re.IGNORECASE):
