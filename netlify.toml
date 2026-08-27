@@ -1,0 +1,12 @@
+# Netlify 部署配置（本地手动 CLI 部署）
+#
+# 本地流程：
+#   1) python scripts/build.py                  # 生成 build/web（含同源 ./cdn/ 运行时 + 游戏包）
+#   2) netlify deploy --prod --dir=build/web   # 部署到 Netlify
+#
+# 说明：
+#   - 未设置 build command，避免 Netlify 后台“自动构建”误触发（本项目由本地/CI 先构建好再部署）。
+#   - publish 仅声明产物目录；执行 netlify deploy --dir=build/web 时以 --dir 为准。
+#   - 运行时与游戏包全部同源托管在 Netlify，不依赖任何外部 CDN。
+[build]
+  publish = "build/web"

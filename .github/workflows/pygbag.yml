@@ -1,18 +1,14 @@
-name: Build and Deploy Pygame to GitHub Pages
+name: Build Pygame (artifact only)
 
+# 仅负责构建并上传产物作为备份；实际部署由本地 netlify-cli 完成（见 netlify.toml）。
+# 不再使用 GitHub Pages 部署，也不再推送 assets 分支到 jsdelivr/Gitee。
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  contents: read
 
 jobs:
   build:
@@ -35,9 +31,7 @@ jobs:
         run: |
           python -m pygbag --build --app_name tank_battle --title "坦克大战" --can_close 1 .
 
-      - name: Clean private files from build bundle
-        # 统一归档名为 tank_battle，与页面 Python 模板 custom_site() 硬编码的 tank_battle.tar.gz 一致。
-        # pygbag 在不同版本/环境下可能产出 中文名 / 连字符名 / 下划线名，这里全部归一到 tank_battle。
+      - name: Clean private files & normalize archive
         run: |
           cd build/web
           for f in "坦克大战.apk" "tank-battle.apk" "tank_battle.apk"; do
@@ -46,7 +40,6 @@ jobs:
           for f in "坦克大战.tar.gz" "tank-battle.tar.gz" "tank_battle.tar.gz"; do
             [ -f "$f" ] && [ "$f" != "tank_battle.tar.gz" ] && mv -f "$f" "tank_battle.tar.gz" || true
           done
-          # 修正 index.html 中对中文文件名的引用
           python3 - <<'PY'
           p = "index.html"
           s = open(p, encoding="utf-8").read()
@@ -56,7 +49,6 @@ jobs:
           open(p, "w", encoding="utf-8").write(s)
           print("index.html fixed")
           PY
-          # 从压缩包内剔除 .workbuddy 记忆与真实存档
           python3 - <<'PY'
           import tarfile, io, os
           apk = "tank_battle.tar.gz"
@@ -79,47 +71,17 @@ jobs:
               print("tar cleanup failed (non-fatal):", repr(e))
           PY
 
+      - name: Copy vendored runtime into build (same-origin)
+        # 把 vendor/cdn 拷入 build/web/cdn，使运行时与游戏包全部同源托管在 Netlify。
+        run: |
+          cp -r vendor/cdn build/web/cdn
+
       - name: Patch index.html for auto-start
-        # 让游戏加载后自动启动，不再卡在 "等待点击"；并清理无效 allow feature 警告
         run: |
           python3 scripts/patch_index.py build/web/index.html
 
-      - name: Publish game archive to jsdelivr CDN (assets branch)
-        # 把构建产物里的游戏归档推送到仓库的 assets 分支，经 jsdelivr 稳定分发，
-        # 避免 github.io 直接托管 5MB 大文件被中途重置连接(ERR_CONNECTION_RESET)。
-        # index.html 已改为从 jsdelivr 拉取运行时与游戏包，故无需再把 vendor/cdn 拷进产物。
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          cd build/web
-          git init -q
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git remote add origin "https://x-access-token:${TOKEN}@github.com/${REPO}.git"
-          git checkout -B assets
-          git add tank_battle.apk tank_battle.tar.gz
-          git commit -q -m "chore: update game archive (auto)" && git push -f origin assets || echo "no archive changes to publish"
-          # 触发 jsdelivr 刷新缓存，缩短首次索引延迟（best-effort）
-          for f in tank_battle.apk tank_battle.tar.gz; do
-            curl -s -o /dev/null -m 15 "https://purge.jsdelivr.net/gh/${REPO}@assets/$f" || true
-          done
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
+          name: tank-battle-web
           path: ./build/web
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
