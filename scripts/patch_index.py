@@ -87,12 +87,24 @@ def patch(path: str) -> None:
     )
 
     # 7) 兜底解锁媒体交互，跳过 "等待点击" 阻塞
-    #    （音频仍受浏览器自动播放策略约束，首次交互后生效；不影响画面渲染）
+    #    pygbag 的 custom_site() 会 while 等待 platform.window.MM.UME 为真才加载游戏。
+    #    若 custom_onload 触发时 MM 尚未初始化，单次赋值会失效 → 游戏永远卡在等待点击。
+    #    改为：轮询等待 MM 就绪后设 UME=true，并额外绑定首次交互兜底，双重保险。
     s = s.replace(
         'console.log(__FILE__, "custom_onload")',
         'console.log(__FILE__, "custom_onload")\n'
-        "        // 主动解锁媒体交互，跳过 \"等待点击\" 阻塞\n"
-        "        try { if (window.MM) { window.MM.UME = true; } } catch(e) { console.warn('UME unlock skip', e); }",
+        "        // 主动解锁媒体交互，跳过 \"等待点击\" 阻塞（轮询 + 兜底）\n"
+        "        (function unlockUME(){\n"
+        "          function setUME(){ try { if (window.MM) { window.MM.UME = true; } } catch(e){} }\n"
+        "          setUME();\n"
+        "          if (!window.__umePolling) {\n"
+        "            window.__umePolling = true;\n"
+        "            var iv = setInterval(function(){ setUME(); if (window.MM && window.MM.UME) clearInterval(iv); }, 200);\n"
+        "            ['pointerdown','keydown','touchstart'].forEach(function(ev){\n"
+        "              window.addEventListener(ev, setUME, { once:true });\n"
+        "            });\n"
+        "          }\n"
+        "        })();",
     )
 
     # 8) 网页布局美化：将画布两侧的留白区域主题化为深蓝科技风（网格 + 径向渐变），

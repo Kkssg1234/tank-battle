@@ -247,17 +247,37 @@ class Game:
 
     async def run_async(self):
         """主循环（浏览器异步版）。"""
-        await self.load_save()
-        # 主动隐藏 pygbag 的加载提示框（#infobox，z-index:999999，覆盖全屏）。
-        # 该提示框原本在 shell.source(main) 返回后才隐藏，但本游戏主循环是无限循环、
-        # shell.source 永不返回，故模板永远不会隐藏它 → 绿框一直挡在画面最上层。
-        # 这里在游戏一开始主动隐藏，避免遮挡。
-        if _IN_BROWSER:
-            try:
-                platform.window.infobox.style.display = "none"
-            except Exception:
-                pass
-        await self._loop_async()
+        try:
+            await self.load_save()
+            # 主动隐藏 pygbag 的加载提示框（#infobox，z-index:999999，覆盖全屏）。
+            # 该提示框原本在 shell.source(main) 返回后才隐藏，但本游戏主循环是无限循环、
+            # shell.source 永不返回，故模板永远不会隐藏它 → 绿框一直挡在画面最上层。
+            # 这里在游戏一开始主动隐藏，避免遮挡。
+            if _IN_BROWSER:
+                try:
+                    platform.window.infobox.style.display = "none"
+                except Exception:
+                    pass
+            await self._loop_async()
+        except Exception as _err:
+            # 网页端 xtermjs 关闭时 Python traceback 会被丢弃，导致「无声卡死」。
+            # 这里把异常直接渲染到页面，便于定位：刷新即可看到具体错误。
+            import traceback as _tb
+            _msg = "【游戏启动异常】\n" + _tb.format_exc()
+            print(_msg, file=sys.stderr)
+            if _IN_BROWSER:
+                try:
+                    _el = platform.window.document.createElement("pre")
+                    _el.style.cssText = (
+                        "position:fixed;top:0;left:0;right:0;max-height:60%;overflow:auto;"
+                        "color:#ff5555;background:#000;white-space:pre-wrap;z-index:9999999;"
+                        "font:13px/1.4 monospace;padding:12px;border-bottom:2px solid #ff5555;"
+                    )
+                    _el.textContent = _msg
+                    platform.window.document.body.appendChild(_el)
+                except Exception:
+                    pass
+            raise
 
     def _event_dispatch(self, event):
         """事件分发（本地与浏览器共用）。"""
