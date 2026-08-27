@@ -245,21 +245,48 @@ class Game:
         self.save_data = SaveManager.load()
         self._loop()
 
+    def _hide_infobox(self):
+        """隐藏 pygbag 加载提示框（#infobox，默认文案 "Loading, please wait ..."）。
+
+        pygbag 模板在 shell.source(main) 返回后才隐藏该框，但本游戏主循环是无限循环、
+        shell.source 永不返回，故必须主动隐藏；否则它会永久盖在画面上。
+        优先用 document.getElementById("infobox")（比 window.infobox 命名属性更稳），
+        失败再回退到 window.infobox。"""
+        if not _IN_BROWSER:
+            return
+        try:
+            doc = platform.window.document
+            el = doc.getElementById("infobox") if doc else None
+            if el is not None:
+                el.style.display = "none"
+                return
+        except Exception:
+            pass
+        try:
+            ib = getattr(platform.window, "infobox", None)
+            if ib is not None:
+                ib.style.display = "none"
+        except Exception:
+            pass
+
     async def run_async(self):
         """主循环（浏览器异步版）。"""
         try:
-            await self.load_save()
-            # 主动隐藏 pygbag 的加载提示框（#infobox，z-index:999999，覆盖全屏）。
-            # 该提示框原本在 shell.source(main) 返回后才隐藏，但本游戏主循环是无限循环、
-            # shell.source 永不返回，故模板永远不会隐藏它 → 绿框一直挡在画面最上层。
-            # 这里在游戏一开始主动隐藏，避免遮挡。
-            if _IN_BROWSER:
-                try:
-                    platform.window.infobox.style.display = "none"
-                except Exception:
-                    pass
+            # 1) 进主循环前先隐藏加载遮罩：无论后续存档加载是否顺利，都不再卡在
+            #    "Loading, please wait ..."。原先是先 await 存档再隐藏，一旦
+            #    platform.storage.get 在浏览器端偶发挂起不返回，遮罩便永久停留。
+            self._hide_infobox()
+            # 2) 加载存档：浏览器端走 platform.storage，偶发不返回（挂起）。
+            #    用超时兜底——超时则退回默认存档，保证游戏一定能启动，
+            #    绝不在加载界面卡死（这是之前“一直卡在 Loading”的直接根因）。
+            try:
+                self.save_data = await asyncio.wait_for(self.load_save(), timeout=3.0)
+            except Exception:
+                self.save_data = SaveManager._default()
             await self._loop_async()
         except Exception as _err:
+            # 即便启动失败也先隐藏加载遮罩，让下面的错误框可见（而非压在 Loading 文字下）。
+            self._hide_infobox()
             # 网页端 xtermjs 关闭时 Python traceback 会被丢弃，导致「无声卡死」。
             # 这里把异常直接渲染到页面，便于定位：刷新即可看到具体错误。
             import traceback as _tb
