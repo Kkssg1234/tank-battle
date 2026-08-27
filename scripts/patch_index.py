@@ -46,24 +46,27 @@ def patch(path: str) -> None:
 
     orig = s
 
-    # 0) 运行时改为从 jsdelivr 镜像加载（不再自托管 github.io，也不再走被墙的 pygame-web CDN）。
+    # 0) 运行时改为从 gcore.jsdelivr.net 镜像加载（不再自托管 github.io，也不再走被墙的 pygame-web CDN）。
     #    根因：github.io Pages 对本项目的大二进制文件（wasm 13.4MB / data 6.7MB）在下载中途
-    #    重置连接(ERR_CONNECTION_RESET)，导致 wasm 编译失败、整页卡死。jsdelivr 对本类大文件
-    #    可稳定完整传输（已实测 13MB wasm 全量拉取成功），且在国内有可用边缘节点。
+    #    重置连接(ERR_CONNECTION_RESET)，导致 wasm 编译失败、整页卡死。gcore 镜像（Cloudflare/Gcore 边缘）
+    #    对本类文件可稳定完整传输（已实测 13MB wasm 全量拉取成功），且在国内相对可达。
     #    模板 cdn 基址形如 https://pygame-web.github.io/cdn/0.9.3/，故仅替换前缀
-    #    https://pygame-web.github.io/cdn/ 为 jsdelivr 基址 https://cdn.jsdelivr.net/gh/pygame-web/cdn@main/，
+    #    https://pygame-web.github.io/cdn/ 为 gcore 基址 https://gcore.jsdelivr.net/gh/pygame-web/cdn@main/，
     #    版本号 0.9.3 由模板自带保留（注意结尾斜杠，否则会变成 main0.9.3 的错误拼接）。
-    s = s.replace("https://pygame-web.github.io/cdn/", "https://cdn.jsdelivr.net/gh/pygame-web/cdn@main/")
-    # 0.1) 兜底：清掉任何残留的裸 pygame-web 主机引用，统一指向 jsdelivr 运行时基址。
-    s = s.replace("https://pygame-web.github.io", "https://cdn.jsdelivr.net/gh/pygame-web/cdn@main/")
+    #    注意：jsdelivr(gh) 单文件硬上限 20MB，故游戏归档(26.5MB)不能走 jsdelivr，见 step 7b 改走 Gitee raw。
+    #    注意：改用 gcore.jsdelivr.net 镜像（Cloudflare/Gcore 边缘，国内相对可达），
+    #    而非 cdn.jsdelivr.net（国内常被墙/限速）。运行时各文件均 <20MB，gcore 可正常分发。
+    s = s.replace("https://pygame-web.github.io/cdn/", "https://gcore.jsdelivr.net/gh/pygame-web/cdn@main/")
+    # 0.1) 兜底：清掉任何残留的裸 pygame-web 主机引用，统一指向 gcore 运行时基址。
+    s = s.replace("https://pygame-web.github.io", "https://gcore.jsdelivr.net/gh/pygame-web/cdn@main/")
 
-    # 0.2) browserfs 不在 pygame-web/cdn 内（jsdelivr 该路径 404），改用官方 npm 镜像。
+    # 0.2) browserfs 不在 pygame-web/cdn 内（jsdelivr 该路径 404），改用官方 npm 镜像（gcore 镜像，国内更稳）。
     #      pygbag 0.9.3 依赖 browserfs@1.4.3（全局 window.BrowserFS 挂载文件系统）；
     #      缺失则报 "PyMain: BrowserFS not found"，文件系统无法初始化 → 归档解不出 → 游戏卡死。
     #      模板自带双斜杠(0.9.3//browserfs.min.js)，这里用 /+ 同时兼容单/双斜杠，重定向到 npm 镜像。
     s = re.sub(
-        r"https://cdn\.jsdelivr\.net/gh/pygame-web/cdn@main/0\.9\.3/+browserfs\.min\.js",
-        "https://cdn.jsdelivr.net/npm/browserfs@1.4.3/dist/browserfs.min.js",
+        r"https://[a-z]+\.jsdelivr\.net/gh/pygame-web/cdn@main/0\.9\.3/+browserfs\.min\.js",
+        "https://gcore.jsdelivr.net/npm/browserfs@1.4.3/dist/browserfs.min.js",
         s,
     )
 
@@ -104,11 +107,14 @@ def patch(path: str) -> None:
     #     → 归档解不出 → main.py 缺失 → 页面永远卡在加载。这里把 bundle、fopen 统一归一为
     #     tank_battle，兼容 中文 / 连字符 / 下划线 三种写法。
     #     注意：绝不能动 URL 中的 /tank-battle/（那是 GitHub Pages 的仓库子路径，必须保留连字符）。
-    # 7b) 游戏归档（apk / tar.gz，约 5MB）同样不能再从 github.io 拉取（大文件会被重置连接），
-    #     改为从 jsdelivr 加载：归档随每次构建推送到仓库的 assets 分支，经 jsdelivr 稳定分发。
-    #     bundle 仍保留为 tank_battle（仅用于内部挂载路径，避免 appdir 出现异常 URL），
-    #     但 fopen 的归档地址改为 jsdelivr 绝对地址。
-    ARCHIVE_BASE = "https://cdn.jsdelivr.net/gh/kkssg1234/tank-battle@assets/tank_battle"
+    # 7b) 游戏归档（apk / tar.gz，实测 26.5MB）必须由【国内原生、且不限 20MB】的源分发：
+    #     - github.io 直接拉：大文件中途被重置连接(ERR_CONNECTION_RESET) → 原报错根因；
+    #     - jsdelivr(gh)：单文件硬上限 20MB，26.5MB 直接 403（"File size exceeded... 20 MB"）→ 当前报错根因；
+    #     - 故改为 Gitee raw（国内原生、raw 不限单文件大小）：归档随构建推送到仓库的 assets 分支，
+    #       再由用户把该分支镜像/推送到 Gitee（https://gitee.com/kkssg1234/tank-battle/raw/assets/...）。
+    #     bundle 仍保留为 tank_battle（仅用于内部挂载路径），fopen 的归档地址改为 Gitee raw 绝对地址。
+    #     若 Gitee 也不可达，可整体替换为腾讯云 CloudBase / 阿里云 OSS 等国内 CDN（仅改本常量即可）。
+    ARCHIVE_BASE = "https://gitee.com/kkssg1234/tank-battle/raw/assets/tank_battle"
     s = re.sub(r'bundle\s*=\s*"[^"]*"', 'bundle = "tank_battle"', s)
     s = re.sub(r'fopen\("([^"]*)\.tar\.gz"', f'fopen("{ARCHIVE_BASE}.tar.gz"', s)
     s = re.sub(r'fopen\("([^"]*)\.apk"', f'fopen("{ARCHIVE_BASE}.apk"', s)
@@ -160,11 +166,11 @@ def patch(path: str) -> None:
     # 9) 生产环境关闭 xtermjs 终端覆盖层：减少 JS 开销与字体请求，加快首屏
     s = re.sub(r'xtermjs\s*[:=]\s*"[01]"', 'xtermjs : "0"', s)
 
-    # 10) 运行时已迁到 jsdelivr：预连接该 CDN 以加速 wasm / 归档的首字节。
-    if '<html lang="en-us">' in s and 'rel="preconnect" href="https://cdn.jsdelivr.net"' not in s:
+    # 10) 运行时已迁到 gcore.jsdelivr.net：预连接该 CDN 以加速 wasm / 归档的首字节。
+    if '<html lang="en-us">' in s and 'rel="preconnect" href="https://gcore.jsdelivr.net"' not in s:
         s = s.replace(
             '<html lang="en-us">',
-            '<html lang="en-us">\n<head><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin></head>',
+            '<html lang="en-us">\n<head><link rel="preconnect" href="https://gcore.jsdelivr.net" crossorigin></head>',
             1,
         )
 
