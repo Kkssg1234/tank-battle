@@ -14,7 +14,8 @@ patch_index.py - pygbag 构建后对 index.html 的修正脚本
 8. 网页布局美化：两侧留白区域主题化为深蓝科技风 + 画布辉光边框，消除"空白"观感
 9. 生产环境关闭 xtermjs 终端覆盖层，减少 JS 开销与字体请求，加快首屏
 10. 预连接 CDN，加速 wasm / 字体加载
-11. 删除 templates 残留的 browserfs.min.js 脚本标签（pygbag 已移除 browserfs，未自托管会 404）
+11. 保留并自托管 browserfs.min.js（pygbag 的 main.js 依赖全局 window.BrowserFS 挂载文件系统；
+    外部 CDN 不可用，改为同源绝对地址并随 vendor/cdn 部署）
 
 用法：
     python scripts/patch_index.py build/web/index.html
@@ -54,14 +55,15 @@ def patch(path: str) -> None:
     # 0.1) 兜底：清掉任何残留的裸 pygame-web 主机引用（如 preconnect），统一指向同源根。
     s = s.replace("https://pygame-web.github.io", "https://kkssg1234.github.io/tank-battle")
 
-    # 0.2) 删除 browserfs.min.js 脚本标签。pygbag 已在 pythons.js 中移除 browserfs，
-    #      但 index.html 模板仍残留该 <script>，而我们并未自托管它 → 必然 404。
-    #      直接删掉该标签，消除最后一个控制台 404 噪声（不影响运行）。
-    s = re.sub(
-        r'\s*<script[^>]*src="[^"]*browserfs\.min\.js"[^>]*></script>\s*\n',
-        "",
-        s,
-    )
+    # 0.2) browserfs 运行时【必须保留并自托管】，绝不能删。
+    #      pygbag 的 cpython312/main.js 启动时会检查全局 window.BrowserFS，缺失则报
+    #      "PyMain: BrowserFS not found" 且文件系统无法初始化 → 归档解不出 → 游戏卡死。
+    #      模板默认从外部 CDN(pygame-web.github.io) 引 browserfs.min.js，用户网络打不开 → 404；
+    #      上面 step 0 已把该外部地址改写为同源绝对地址。本步再修掉模板自带的双斜杠
+    #      （cookiecutter.cdn 末尾带 "/"，拼接出 "0.9.3//browserfs.min.js"），确保路径干净可命中。
+    #      文件本身由 vendor/cdn/0.9.3/browserfs.min.js 随仓库部署
+    #      （CI 的 `cp -r vendor/cdn build/web/cdn` 会把它带进产物）。
+    s = s.replace("tank-battle/cdn/0.9.3//browserfs", "tank-battle/cdn/0.9.3/browserfs")
 
     # 1) 注入 DOCTYPE，消除 Quirks Mode（根因之一：画布高度塌缩导致黑屏）
     if not re.match(r"^\s*<!DOCTYPE", s, re.IGNORECASE):
