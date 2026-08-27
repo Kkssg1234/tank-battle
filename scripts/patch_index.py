@@ -92,6 +92,22 @@ def patch(path: str) -> None:
     #    main.py 缺失、掉进 REPL、加载遮罩永不消失。这里强制归一为 tank_battle。
     s = re.sub(r'archive\s*:\s*"[^"]*"', 'archive : "tank_battle"', s)
 
+    # 7b) 归一 custom_site() 模板里所有「归档名」引用（bundle / fopen / Loading 文本），
+    #     使其与 config.archive(=tank_battle) 及实际挂载的 tank_battle.tar.gz 一致。
+    #     关键点：CI 上 GitHub 把仓库目录 slugify 成 tank-battle（连字符），模板据此硬编码
+    #     bundle = "tank-battle"、fopen("tank-battle.tar.gz")；而 pythons.js 按 config.archive
+    #     挂载的是 tank_battle.tar.gz（下划线）。fopen 用连字符名去开下划线文件 → 文件不存在
+    #     → 归档解不出 → main.py 缺失 → 页面永远卡在加载。这里把 bundle、fopen 统一归一为
+    #     tank_battle，兼容 中文 / 连字符 / 下划线 三种写法。
+    #     注意：绝不能动 URL 中的 /tank-battle/（那是 GitHub Pages 的仓库子路径，必须保留连字符）。
+    s = re.sub(r'bundle\s*=\s*"[^"]*"', 'bundle = "tank_battle"', s)
+    s = re.sub(r'fopen\("([^"]*)\.tar\.gz"', 'fopen("tank_battle.tar.gz"', s)
+    s = re.sub(r'fopen\("([^"]*)\.apk"', 'fopen("tank_battle.apk"', s)
+    # 兜底：把零散的连字符归档引用（如 Loading 文本 "from tank-battle.apk"）也归一。
+    # 这些子串只出现在模板文本里，不会出现在 /tank-battle/cdn 这种 URL 中，可安全替换。
+    s = s.replace("tank-battle.apk", "tank_battle.apk").replace("tank-battle.tar.gz", "tank_battle.tar.gz")
+    s = re.sub(r'Folder\s*:\s*\S+', 'Folder  : tank_battle', s)
+
     # 8) 兜底解锁媒体交互，跳过 "等待点击" 阻塞。
     #    pygbag 的 custom_site() 会 while 等待 platform.window.MM.UME 为真才加载游戏。
     #    用独立的 <script> 轮询设置 window.MM.UME=true，避免侵入 custom_onload 导致语法/运行时错误；
