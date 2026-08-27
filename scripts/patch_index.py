@@ -86,26 +86,32 @@ def patch(path: str) -> None:
         "点击页面任意位置开始游戏 / Click anywhere to start",
     )
 
-    # 7) 兜底解锁媒体交互，跳过 "等待点击" 阻塞
+    # 7) 统一游戏归档名：pygbag 的 Python 模板 custom_site() 硬编码用
+    #    tank_battle.tar.gz（下划线）解包，而 pythons.js 按 config.archive 去下载/挂载。
+    #    若两者不一致（如 config.archive 被写成 tank-battle 连字符），运行时就取不到归档、
+    #    main.py 缺失、掉进 REPL、加载遮罩永不消失。这里强制归一为 tank_battle。
+    s = re.sub(r'archive\s*:\s*"[^"]*"', 'archive : "tank_battle"', s)
+
+    # 8) 兜底解锁媒体交互，跳过 "等待点击" 阻塞。
     #    pygbag 的 custom_site() 会 while 等待 platform.window.MM.UME 为真才加载游戏。
-    #    若 custom_onload 触发时 MM 尚未初始化，单次赋值会失效 → 游戏永远卡在等待点击。
-    #    改为：轮询等待 MM 就绪后设 UME=true，并额外绑定首次交互兜底，双重保险。
-    s = s.replace(
-        'console.log(__FILE__, "custom_onload")',
-        'console.log(__FILE__, "custom_onload")\n'
-        "        // 主动解锁媒体交互，跳过 \"等待点击\" 阻塞（轮询 + 兜底）\n"
-        "        (function unlockUME(){\n"
-        "          function setUME(){ try { if (window.MM) { window.MM.UME = true; } } catch(e){} }\n"
-        "          setUME();\n"
-        "          if (!window.__umePolling) {\n"
-        "            window.__umePolling = true;\n"
-        "            var iv = setInterval(function(){ setUME(); if (window.MM && window.MM.UME) clearInterval(iv); }, 200);\n"
-        "            ['pointerdown','keydown','touchstart'].forEach(function(ev){\n"
-        "              window.addEventListener(ev, setUME, { once:true });\n"
-        "            });\n"
-        "          }\n"
-        "        })();",
-    )
+    #    用独立的 <script> 轮询设置 window.MM.UME=true，避免侵入 custom_onload 导致语法/运行时错误；
+    #    并绑定首次交互兜底。用哨兵注释保证幂等，重复运行不会重复注入。
+    if "/*__UME_UNLOCK__*/" not in s:
+        s = s.replace(
+            "</body>",
+            '    <script>\n'
+            '    /*__UME_UNLOCK__*/\n'
+            '    (function () {\n'
+            '      function setUME() { try { if (window.MM) { window.MM.UME = true; } } catch (e) {} }\n'
+            '      setUME();\n'
+            '      var iv = setInterval(function () { setUME(); if (window.MM && window.MM.UME) clearInterval(iv); }, 200);\n'
+            '      ["pointerdown", "keydown", "touchstart", "click"].forEach(function (ev) {\n'
+            '        window.addEventListener(ev, setUME, { once: true });\n'
+            '      });\n'
+            '    })();\n'
+            '    </script>\n</body>',
+            1,
+        )
 
     # 8) 网页布局美化：将画布两侧的留白区域主题化为深蓝科技风（网格 + 径向渐变），
     #    并为画布添加辉光边框，使 16:9 letterbox 看起来是刻意设计而非“空白”。

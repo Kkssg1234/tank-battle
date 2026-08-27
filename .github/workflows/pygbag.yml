@@ -39,9 +39,11 @@ jobs:
         # pygbag 默认用目录名（中文）命名 apk；先重命名为英文，再剔除隐私/开发文件
         run: |
           cd build/web
-          # 重命名为英文，避免 URL 编码问题
-          if [ -f "坦克大战.apk" ]; then mv "坦克大战.apk" "tank_battle.apk"; fi
-          if [ -f "坦克大战.tar.gz" ]; then mv "坦克大战.tar.gz" "tank_battle.tar.gz"; fi
+          # 重命名为英文，避免 URL 编码问题。pygbag 不同版本/参数可能产生
+          # 中文名或连字符名（坦克大战 / tank-battle），统一归一到 tank_battle，
+          # 与页面 Python 模板 custom_site() 硬编码的 tank_battle.tar.gz 保持一致。
+          for f in "坦克大战.apk" "tank-battle.apk"; do [ -f "$f" ] && mv "$f" "tank_battle.apk"; done
+          for f in "坦克大战.tar.gz" "tank-battle.tar.gz"; do [ -f "$f" ] && mv "$f" "tank_battle.tar.gz"; done
           # 修正 index.html 中对中文文件名的引用
           python - <<'PY'
           p = "index.html"
